@@ -1,0 +1,11 @@
+# build artefacts
+giscup
+test_figures
+*.o
+
+# run outputs
+submission.txt
+results/*.log
+
+# scratch
+scale*.geojson

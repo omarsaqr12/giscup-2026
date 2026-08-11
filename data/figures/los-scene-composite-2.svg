@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="650" viewBox="0 0 1000 650">
+<rect x="0" y="0" width="1000" height="650" fill="#ffffff"/>
+<polygon points="65,42 230,40 223,82 181,89 180,161 120,166 123,130 58,123" fill="none" stroke="#2d3748" stroke-width="2"/>
+<polygon points="294,42 283,78 416,106 426,71" fill="none" stroke="#2d3748" stroke-width="2"/>
+<polygon points="563,112 584,147 686,117 666,79" fill="none" stroke="#2d3748" stroke-width="2"/>
+<polygon points="742,116 812,118 810,75 724,76" fill="none" stroke="#2d3748" stroke-width="2"/>
+<polygon points="741,187 802,188 801,224 755,226" fill="none" stroke="#2d3748" stroke-width="2"/>
+<polygon points="309,211 290,264 443,296 464,244" fill="none" stroke="#2d3748" stroke-width="2"/>
+<polygon points="445,169 452,207 508,216 504,296 564,291 552,181" fill="none" stroke="#2d3748" stroke-width="2"/>
+<polygon points="470,336 551,339 540,392 474,388" fill="none" stroke="#2d3748" stroke-width="2"/>
+<polygon points="49,221 56,305 167,303 163,253 121,255 122,219" fill="none" stroke="#2d3748" stroke-width="2"/>
+<polygon points="259,322 245,432 294,427 302,328" fill="none" stroke="#2d3748" stroke-width="2"/>
+<polygon points="332,447 327,505 500,511 493,450" fill="none" stroke="#2d3748" stroke-width="2"/>
+<polygon points="566,458 565,516 662,527 681,360 645,358 622,461" fill="none" stroke="#2d3748" stroke-width="2"/>
+<polygon points="34,343 132,340 125,382 69,382 71,416 118,420 118,460 35,463" fill="none" stroke="#2d3748" stroke-width="2"/>
+<polygon points="32,509 128,500 128,543 88,545 95,570 65,570 59,545 27,543" fill="none" stroke="#2d3748" stroke-width="2"/>
+<polygon points="194,496 189,586 258,584 255,494" fill="none" stroke="#2d3748" stroke-width="2"/>
+<!--Visibility from C -->
+<polyline points="327,505 500,511" fill="none" stroke="#ef5853" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="565.0473107569721,513.2559760956176 565,516 662,527" fill="none" stroke="#ef5853" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="258,584 255.2837577160494,502.5127314814814" fill="none" stroke="#ef5853" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+<!--Visibility from B -->
+<polyline points="226.3134059673768,62.119564195739166 223,82 181,89 180.44275385329723,129.1217225625992" fill="none" stroke="#5b4df5" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="283,78 416,106 421.60115453632073,86.39595912287741" fill="none" stroke="#5b4df5" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="584,147 686,117 666,79" fill="none" stroke="#5b4df5" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="755,226 741,187" fill="none" stroke="#5b4df5" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="564,291 552,181" fill="none" stroke="#5b4df5" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="470,336 551,339 540,392" fill="none" stroke="#5b4df5" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="294.87792592295796,416.1356667033949 295.28695366102636,411.07394844479853" fill="none" stroke="#5b4df5" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="500,511 493,450 474.43915164222653,449.6541456827744" fill="none" stroke="#5b4df5" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="662,527 681,360 645,358" fill="none" stroke="#5b4df5" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="575.302633839533,458.4983553842607 566,458" fill="none" stroke="#5b4df5" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+<!--Visibility from A -->
+<polyline points="223,82 181,89 180,161" fill="none" stroke="#1e9d4c" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="294,42 283,78 416,106" fill="none" stroke="#1e9d4c" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="666,79 563,112 584,147" fill="none" stroke="#1e9d4c" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="746.3778023787326,201.98102091218357 741,187 802,188" fill="none" stroke="#1e9d4c" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="464,244 309,211 290,264" fill="none" stroke="#1e9d4c" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="445,169 452,207" fill="none" stroke="#1e9d4c" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="507.7628058757309,220.74388248538133 505.83348317363254,259.33033652734883" fill="none" stroke="#1e9d4c" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="302,328 259,322 245,432" fill="none" stroke="#1e9d4c" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="453.9616552346032,449.27257742673174 379.6267317017851,447.8874546279836" fill="none" stroke="#1e9d4c" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+<polyline points="255,494 194,496 189,586" fill="none" stroke="#1e9d4c" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+
+<!-- Point A -->
+<circle cx="180.29122468659594" cy="140.0318225650916" r="5" fill="#1e9d4c"/>
+<text x="192" y="152" fill="#1e9d4c" font-family="Arial, sans-serif" font-size="16" font-weight="700" text-anchor="middle" dominant-baseline="middle">a</text>
+<!-- Point B -->
+<circle cx="748.7052999417589" cy="208.46476412347118" r="5" fill="#5b4df5"/>
+<text x="736" y="220" fill="#5b4df5" font-family="Arial, sans-serif" font-size="16" font-weight="700" text-anchor="middle" dominant-baseline="middle">b</text>
+<!-- Point C -->
+<circle cx="393.7520774236609" cy="507.3151009511096" r="5" fill="#d14343"/>
+<text x="405" y="519" fill="#d14343" font-family="Arial, sans-serif" font-size="16" font-weight="700" text-anchor="middle" dominant-baseline="middle">c</text>
+
+<text x="137.4417842333264" y="90.34261125396715" fill="#676767" font-family="Arial, sans-serif" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">23.8%</text>
+<text x="354.39029915384106" y="74.18835365447399" fill="#676767" font-family="Arial, sans-serif" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">56.2%</text>
+<text x="625.2492211838006" y="113.5169060101816" fill="#020304" font-family="Arial, sans-serif" font-size="12" font-weight="700" text-anchor="middle" dominant-baseline="middle">100.0%</text>
+<text x="772.3077557755776" y="95.5105198019802" fill="#676767" font-family="Arial, sans-serif" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">0.0%</text>
+<text x="779.2309032097537" y="205.4090569793481" fill="#676767" font-family="Arial, sans-serif" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">55.5%</text>
+<text x="376.3930929211982" y="253.65979774852127" fill="#676767" font-family="Arial, sans-serif" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">50.3%</text>
+<text x="535.110554809297" y="277.8765417022836" fill="#676767" font-family="Arial, sans-serif" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">41.4%</text>
+<text x="509.0084388185654" y="362.873417721519" fill="#676767" font-family="Arial, sans-serif" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">53.3%</text>
+<text x="97.20997243798547" y="275.2183245636014" fill="#676767" font-family="Arial, sans-serif" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">0.0%</text>
+<text x="276.4981818181818" y="391.16121212121215" fill="#676767" font-family="Arial, sans-serif" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">52.6%</text>
+<text x="413.63229963753525" y="478.62182843334676" fill="#020304" font-family="Arial, sans-serif" font-size="12" font-weight="700" text-anchor="middle" dominant-baseline="middle">72.2%</text>
+<text x="616.9608790647975" y="490.5590960560101" fill="#020304" font-family="Arial, sans-serif" font-size="12" font-weight="700" text-anchor="middle" dominant-baseline="middle">60.2%</text>
+<text x="71.08333333333334" y="361.125" fill="#676767" font-family="Arial, sans-serif" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">0.0%</text>
+<text x="79.95052167365817" y="527.7519629988168" fill="#676767" font-family="Arial, sans-serif" font-size="12" font-weight="400" text-anchor="middle" dominant-baseline="middle">0.0%</text>
+<text x="224.00455996352028" y="540.9229366165071" fill="#020304" font-family="Arial, sans-serif" font-size="12" font-weight="700" text-anchor="middle" dominant-baseline="middle">75.0%</text>
+</svg>

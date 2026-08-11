@@ -1,0 +1,14 @@
+=== scale4 ===
+[load] /tmp/claude-1001/-home-mohab-Downloads-hiLang/baee9b82-b40f-4746-8a12-6b755987707d/scratchpad/scale4.geojson
+[load] 51440 buildings, 314908 edges, 0.11s
+[contrib] candidates=314908 entries=10974042 (34.8 per candidate) mem=0.21 GB
+[contrib] 16.72s
+0.5    1000   2.5         11681     10838    12.8 tuned
+TOTAL 29.78s  peakRSS 2500608kB
+=== scale16 ===
+[load] /tmp/claude-1001/-home-mohab-Downloads-hiLang/baee9b82-b40f-4746-8a12-6b755987707d/scratchpad/scale16.geojson
+[load] 205760 buildings, 1259632 edges, 0.42s
+[contrib] candidates=1259632 entries=44541666 (35.4 per candidate) mem=0.84 GB
+[contrib] 78.84s
+0.5    1000   2.5         12107     10551    94.0 tuned
+TOTAL 173.74s  peakRSS 7567588kB
