@@ -62,7 +62,8 @@ struct Args {
     bool autotune = true;
     int finalists = 2;
     int restarts = 0;      // GRASP restarts, run concurrently
-    double rcl_eps = 0.15;  // exponents promoted from the cheap sweep to the focused run
+    double rcl_eps = 0.15;
+    int swap_shortlist = 0;   // 2-exchange addition shortlist; 0 disables  // exponents promoted from the cheap sweep to the focused run
     std::vector<double> powers{1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0, 8.0};
 };
 
@@ -273,6 +274,7 @@ static int cmd_solve(const Args& A) {
                 double ts2 = now_s();
                 int before = best_score;
                 Solver S(sc, cands, C, I, tau, best_cfg.pw, A.normalise, best_cfg.cost);
+                S.set_two_exchange(A.swap_shortlist > 0, A.swap_shortlist);
                 S.run(polish_algo(A.algo), k, A.lns_sec, A.seed, false);
                 harvest(S, best_cfg);
                 std::printf("%-6g %-6d %-5.1f %-6s %9d %9d %7.1f %s\n", tau, k, best_cfg.pw,
@@ -506,6 +508,20 @@ static int cmd_verify(const Args& A) {
                     " false=%-4d missed=%-4d unknown_id=%d\n",
                     blocks, tau, k, ants.size(), ids.size(), ok, false_claim, missed, unknown);
         std::printf("          fractional-surrogate value of this solution = %.1f\n", lp_value);
+        // How close are our claims to the line? A building we claim at
+        // tau + 1e-15 is a building the organizers' evaluator may compute at
+        // tau - 1e-15. Anything in the tightest bucket is a coin-flip claim.
+        int m12 = 0, m9 = 0, m6 = 0, m3 = 0;
+        for (size_t b = 0; b < cov.size(); ++b) {
+            if (cov[b] < tau) continue;
+            double d = cov[b] - tau;
+            if (d < 1e-12) ++m12;
+            else if (d < 1e-9) ++m9;
+            else if (d < 1e-6) ++m6;
+            else if (d < 1e-3) ++m3;
+        }
+        std::printf("          claim margin above tau:  <1e-12:%d  <1e-9:%d  <1e-6:%d  <1e-3:%d\n",
+                    m12, m9, m6, m3);
         if (out_fixed) {
             std::fprintf(out_fixed, "%g,%d\n", tau, k);
             for (size_t i = 0; i < ants.size(); ++i)
@@ -680,6 +696,7 @@ int main(int argc, char** argv) {
         else if (a == "--rewrite") A.rewrite = next();
         else if (a == "--restarts") A.restarts = std::atoi(next().c_str());
         else if (a == "--rcl-eps") A.rcl_eps = std::atof(next().c_str());
+        else if (a == "--swap") A.swap_shortlist = std::atoi(next().c_str());
     }
     now_s();
     try {

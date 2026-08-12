@@ -14,3 +14,14 @@ mean ratio to optimum: greedy 0.79 -> GRASP 0.93
 
 At k=50 on the full 12,860-building dataset, 128 restarts changed nothing
 (see grasp_fullsize.txt): the tiny-instance remedy does not transfer.
+
+2-exchange (--swap 400) reaches the optimum on every instance above:
+ n   tau    k   before  +2-exchange  OPTIMUM
+40   0.50   3     17         20        20
+40   0.75   3      6          8         8
+70   0.50   2     12         15        15
+70   0.50   3     17         22        22
+mean ratio to optimum: 0.79 -> 1.00 (GRASP reached 0.93)
+
+Unlike GRASP this transfers to the full dataset: (0.75,50) 298->377,
+(0.5,50) 725->848, (0.75,500) 2586->2863.
