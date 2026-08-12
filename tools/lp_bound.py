@@ -20,7 +20,29 @@ the LP optimum upper-bounds the true optimum. It is a relaxation in two places
 (fractional antennas, and atoms coverable "partially"), so the bound is loose --
 but a loose upper bound still brackets the answer, which is more than we had.
 
-    python3 tools/lp_bound.py dump.txt TAU K
+Knapsack-cover strengthening. The relaxation above is weak for the reason
+Carr, Fleischer, Leung & Phillips (SODA 2000) identified: a covering constraint
+whose coefficients are large relative to the demand can be satisfied by taking a
+sliver of one big item. The remedy is to contract a subset A of items, compute
+the residual demand, and cap every remaining coefficient at that residual.
+
+For building b, the coverage requirement relaxes to a knapsack cover on the
+antennas directly -- if S services b then
+
+    sum_{c in S} w_c  >=  cov_b(S)  >=  tau*P_b            (union <= sum)
+
+where w_c is what antenna c alone delivers to b. Applying the KC construction to
+that constraint, for any A subset of the antennas seeing b:
+
+    sum_{c not in A} min(w_c, R) * y_c  >=  R * z_b,   R = tau*P_b - cov_b(A)
+
+Two problem-specific notes. The z_b on the right is sound because the constraint
+only binds when b is claimed (z_b = 0 makes it vacuous). And the residual uses
+the *union* cov_b(A) rather than the generic sum(w_c for c in A); since the union
+is no larger, R is no smaller, so this is strictly stronger than the textbook
+form while remaining valid -- the coverage function's submodularity buys that.
+
+    python3 tools/lp_bound.py dump.txt TAU K [--kc J]
 """
 import sys
 import numpy as np
@@ -43,8 +65,26 @@ def load(path):
     return np.array(per), ncand, arcs
 
 
+def measure(iv):
+    """Total length of a union of intervals."""
+    if not iv:
+        return 0.0
+    iv = sorted(iv)
+    tot, cs, ce = 0.0, iv[0][0], iv[0][1]
+    for a, b in iv[1:]:
+        if a > ce:
+            tot += ce - cs
+            cs, ce = a, b
+        else:
+            ce = max(ce, b)
+    return tot + (ce - cs)
+
+
 def main():
     path, tau, k = sys.argv[1], float(sys.argv[2]), int(sys.argv[3])
+    kc_depth = 0
+    if "--kc" in sys.argv:
+        kc_depth = int(sys.argv[sys.argv.index("--kc") + 1])
     per, ncand, arcs = load(path)
     nb = len(per)
 
@@ -110,8 +150,51 @@ def main():
                     sp.csr_matrix((1, na + nb))], format="csr")
     b3 = np.array([float(k)])
 
-    A = sp.vstack([A1, A2, A3], format="csr")
-    bub = np.concatenate([b1, b2, b3])
+    blocks, rhs = [A1, A2, A3], [b1, b2, b3]
+
+    # --- knapsack-cover cuts -------------------------------------------------
+    if kc_depth:
+        per_bc = {}
+        for c, b, s0, s1 in arcs:
+            per_bc.setdefault(b, {}).setdefault(c, []).append((s0, s1))
+        rows_c, cols_c, vals_c, rows_z, cols_z, vals_z, rhs_kc = [], [], [], [], [], [], []
+        nrow = 0
+        for b, cmap in per_bc.items():
+            w = sorted(((measure(v), c) for c, v in cmap.items()), reverse=True)
+            demand = tau * per[b]
+            for j in range(1, kc_depth + 1):
+                if j > len(w):
+                    break
+                A_set = [c for _wc, c in w[:j]]
+                covA = measure([iv for c in A_set for iv in cmap[c]])
+                R = demand - covA
+                if R <= 1e-9:
+                    break
+                Aset = set(A_set)
+                any_term = False
+                for wc, c in w:
+                    if c in Aset:
+                        continue
+                    coef = min(wc, R)
+                    if coef <= 0:
+                        continue
+                    rows_c.append(nrow); cols_c.append(c); vals_c.append(-coef)
+                    any_term = True
+                if not any_term:
+                    continue
+                rows_z.append(nrow); cols_z.append(b); vals_z.append(R)
+                rhs_kc.append(0.0)
+                nrow += 1
+        if nrow:
+            Kc = sp.coo_matrix((vals_c, (rows_c, cols_c)), shape=(nrow, ncand))
+            Kz = sp.coo_matrix((vals_z, (rows_z, cols_z)), shape=(nrow, nb))
+            blocks.append(sp.hstack([Kc.tocsr(), sp.csr_matrix((nrow, na)), Kz.tocsr()],
+                                    format="csr"))
+            rhs.append(np.array(rhs_kc))
+            print(f"  + {nrow:,} knapsack-cover cuts (depth {kc_depth})")
+
+    A = sp.vstack(blocks, format="csr")
+    bub = np.concatenate(rhs)
     c = np.zeros(N)
     c[NY + NX:] = -1.0  # maximise sum z
 
@@ -126,3 +209,25 @@ def main():
 
 
 main()
+
+# Validity of the strengthened cut, spelled out because it departs from the
+# textbook form (which assumes a linear knapsack; ours is a union).
+#
+#   Claim. For any A subset of N(b),
+#       sum_{c not in A} min(w_c, R) y_c  >=  R z_b,   R = tau*P_b - cov_b(A)
+#   is valid for every integral placement.
+#
+#   z_b = 0: right side is 0, all coefficients are non-negative.       [ok]
+#   z_b = 1: let S = {c : y_c = 1}, so cov_b(S) >= tau*P_b. Coverage is
+#       monotone and subadditive, so
+#           tau*P_b <= cov_b(S) <= cov_b(S∩A) + sum_{c in S\A} w_c
+#                              <= cov_b(A)   + sum_{c in S\A} w_c
+#       hence sum_{c in S\A} w_c >= R. Capping at R preserves this: either some
+#       single c in S\A already has w_c >= R, contributing exactly R, or every
+#       w_c < R and the capped sum equals the uncapped one.               [ok]
+#
+#   Strength. The textbook residual is tau*P_b - sum_{c in A} w_c. Since the
+#   union cov_b(A) is no larger than that sum, our R is no smaller. Dividing the
+#   cut by R gives sum min(w_c/R, 1) y_c >= z_b, whose coefficients shrink as R
+#   grows -- so the larger residual is the stronger cut. Submodularity of the
+#   coverage function is what buys the improvement.

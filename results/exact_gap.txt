@@ -1,0 +1,16 @@
+Exhaustive optimum vs heuristic (giscup exact), radius 2000, min-frac 0.
+The only non-self-referential quality measurement in this repo.
+
+ n   tau    k   heuristic  +GRASP  OPTIMUM
+40   0.50   2      15         -       15
+40   0.75   2       4         -        4
+40   0.50   3      17        20       20
+40   0.75   3       6         7        8
+70   0.50   2      12        14       15
+70   0.75   2       4         -        4
+70   0.50   3      17        20       22
+
+mean ratio to optimum: greedy 0.79 -> GRASP 0.93
+
+At k=50 on the full 12,860-building dataset, 128 restarts changed nothing
+(see grasp_fullsize.txt): the tiny-instance remedy does not transfer.

@@ -246,12 +246,14 @@ one independently, and the sweep is cheap because the contribution map is shared
 Widening the config space this way also found configurations neither pricing
 reached alone (4,677 at (0.75, 1000) versus 4,638 and 4,591).
 
-### 4.2b What an LP relaxation does and does not tell us
+### 4.3 Two ways to get an optimality gap: one fails, one works
 
-Every comparison above is against our own earlier baselines, which says how much
-the later work added but nothing about how much is left. The standard way to get
-a real bound is a linear relaxation. Cut each boundary at every arc endpoint into
-*atoms*, so coverage becomes linear:
+Every comparison elsewhere in this document is against our own earlier
+baselines, which says how much the later work added and nothing about how much
+is left. Two attempts at a real bound.
+
+**The LP relaxation — does not work.** Cut each boundary at every arc endpoint
+into *atoms*, so coverage becomes linear:
 
 ```
 max  sum_b z_b
@@ -260,26 +262,58 @@ s.t. x_a <= sum_{c covers a} y_c                     for each atom a
      sum_c y_c <= k ,   0 <= x,y,z <= 1
 ```
 
-Solved with HiGHS on a 240-building crop (41k variables, 40k constraints) at
-τ=0.75, k=20: **LP bound 204.3**, our solution **92**.
+Solved with HiGHS on a 240-building crop (41k variables) at τ=0.75, k=20:
+**bound 204.3**, our solution **92**. That looks like a 45% gap, and it is not.
+Nothing stops the LP setting `z_b = covered_b/(tau*P_b)`, so it really maximises
+`sum_b min(1, cov_b/(tau*P_b))` and cannot distinguish "148 buildings at 70%"
+from "104 finished". Our own solution scores **176.3** in that same currency —
+**86% of the LP optimum**. The gap is the relaxation's, not the solver's.
 
-That looks alarming until you notice what the LP is actually maximising. Nothing
-stops it setting `z_b = covered_b / (tau*P_b)`, so its objective is really
-`sum_b min(1, cov_b/(tau*P_b))` — the *fractional* form of the surrogate. It
-cannot tell "148 buildings at 70%" from "104 buildings finished". Evaluating our
-own integral solution in that same currency gives **176.3** against the LP's
-204.3: we are already at **86% of the LP optimum in the LP's own objective**.
+**Knapsack-cover inequalities — tried, and they do not help either.** The
+textbook repair for a weak covering LP (Carr, Fleischer, Leung & Phillips,
+SODA 2000) contracts a subset `A`, computes the residual demand, and caps every
+remaining coefficient at it. Our coverage requirement relaxes to a knapsack
+cover on the antennas directly, and the union structure even permits a
+*stronger* cut than the textbook form (`tools/lp_bound.py` carries the validity
+argument). Added at depth 1 and depth 3:
 
-So the 92-vs-204 gap is overwhelmingly the threshold/integrality gap of the
-relaxation, not evidence that the solution is at 45% of optimal. **This LP is a
-weak bound for this problem and should not be quoted as an optimality gap.**
+| cuts added | none | 240 (depth 1) | 675 (depth 3) |
+|---|---|---|---|
+| bound | 204.3 | 204.3 | 204.3 |
 
-The principled fix is known: **knapsack-cover inequalities** (Carr, Fleischer,
-Leung, Phillips 2000), which exist precisely to repair covering LPs whose natural
-relaxation is destroyed by threshold constraints. That is the next thing to try
-if a real optimality gap is wanted — see §10.
+Not one unit. The reason is worth recording, because the technique is correct
+and the diagnosis was not: KC inequalities repair a covering constraint whose
+**demand is fixed**. Ours is not — the LP sets `z_b = 0.6`, achieves 60% of the
+coverage, and satisfies the cut `sum min(w_c,R) y_c >= 0.6R` with 60% of the
+antenna mass. The cut scales linearly with `z_b` and binds nothing. The disease
+is partial credit in the *objective*, not weakness in the *constraints*.
 
-### 4.3 Target-set refinement ("focus")
+**Exhaustive optimum on tiny instances — works.** Enumerate every antenna set of
+size `k` and evaluate exactly (`giscup exact`). Slow by construction and viable
+only for `k <= 3`, but it is the one number here that is not a comparison
+against ourselves:
+
+| buildings | τ | k | heuristic | **optimum** | ratio |
+|---|---|---|---|---|---|
+| 40 | 0.50 | 2 | 15 | 15 | 1.00 |
+| 40 | 0.75 | 2 | 4 | 4 | 1.00 |
+| 40 | 0.50 | 3 | 17 | **20** | 0.85 |
+| 40 | 0.75 | 3 | 6 | **8** | 0.75 |
+| 70 | 0.50 | 2 | 12 | **15** | 0.80 |
+| 70 | 0.75 | 2 | 4 | 4 | 1.00 |
+| 70 | 0.50 | 3 | 17 | **22** | 0.77 |
+
+Losing 20% on a **two-antenna** problem is textbook greedy pair-blindness: the
+solver commits to the best single next antenna and cannot see the pair that
+beats it. It also lands precisely on the small-`k` sub-problems §7 identifies as
+competitively decisive. This measurement is what motivated §4.6 — though see there for how that turned
+out.
+
+Caveat on reading it: 40–70 buildings with k≤3 is not 12,860 buildings with
+k=1000, and the gap need not transfer. But it is evidence of a *mechanism*, and
+the mechanism does not disappear at scale.
+
+### 4.4 Target-set refinement ("focus")
 
 Stop pretending every building is reachable. Run once to learn which buildings
 the budget can plausibly finish, restrict the objective to that set plus a
@@ -306,7 +340,7 @@ Exactly the shape the diagnosis predicts: the gain is concentrated where
 completion-coupling binds, and vanishes at τ=0.25 where 98.5% of buildings finish
 with a single antenna and there is nothing to misallocate.
 
-### 4.4 The polish needs both neighbourhoods, not a choice between them
+### 4.5 The polish needs both neighbourhoods, not a choice between them
 
 Focus exposed a silent bug and then a subtler trade-off, in that order.
 
@@ -357,6 +391,53 @@ design, and because it is genuinely the strongest method at τ=0.75 with very
 small k, where completion coupling really does dominate.
 
 ---
+
+### 4.6 Randomised multi-start (GRASP) — works small, does not transfer
+
+Plain greedy commits to the argmax at every step, so it explores exactly one
+trajectory. Sampling uniformly among the near-best choices (within `(1-eps)` of
+the best marginal gain) and restarting many times explores many, keeping the
+best. Restarts are independent and run concurrently on cores that sit idle
+through selection.
+
+Against the known optima of §4.3 it works, and works well:
+
+| buildings | τ | k | greedy | **+ GRASP** | optimum |
+|---|---|---|---|---|---|
+| 40 | 0.50 | 3 | 17 | **20** | 20 |
+| 40 | 0.75 | 3 | 6 | **7** | 8 |
+| 70 | 0.50 | 2 | 12 | **14** | 15 |
+| 70 | 0.50 | 3 | 17 | **20** | 22 |
+
+Mean ratio to optimum **0.79 → 0.93**, one instance solved exactly.
+
+On the real dataset at k=50, with 128 restarts, it does nothing:
+
+| τ | k | without | with 128 restarts |
+|---|---|---|---|
+| 0.25 | 50 | 2,336 | 2,336 |
+| 0.50 | 50 | 717 | 717 |
+| 0.75 | 50 | 298 | 298 |
+
+**The tiny-instance result did not transfer, and that is the lesson.** At k=3 the
+solver makes three choices and pair-blindness dominates the outcome, so
+randomising those three choices explores a meaningful fraction of the space. At
+k=50 over 78,727 candidates it makes fifty choices; 128 restarts sample a
+vanishing corner of that space, and the polish already supplies stochastic
+diversification. "What fixes the toy instance" and "what fixes the real
+instance" turned out to be different questions.
+
+So the exhaustive gap measurement remains valuable — it is still the only
+non-self-referential evidence here — but it should be read as diagnosing a
+*mechanism*, not as predicting which remedy pays at scale. GRASP is kept behind
+`--restarts` (default 0, off).
+
+One bug this exposed, worth recording because it is the kind that reads as a
+result: on first integration the GRASP branch also overwrote the chosen
+configuration, so the polish stage afterwards ran a *different* potential from
+the one the tuning round had selected. That made (0.75, 50) score 277 against
+298 without GRASP — an apparent 7% regression from an addition that is supposed
+to be a pure max. Restarts now contribute a candidate solution only.
 
 ## 5. Architecture as built
 
@@ -491,7 +572,7 @@ compares this system against *our own* earlier baseline, not against another
 team. Under the competition's relative scoring a `truncated` submission would
 earn **6.58 / 9** against ours — but that is a statement about how much the
 later work added, not evidence that 5,037 is near-optimal at (0.75, 1000).
-There is no external reference point — and §4.2b shows the obvious way to get
+There is no external reference point — and §4.3 shows the obvious way to get
 one, an LP relaxation, does not work for this objective. §4.1 is the substitute.
 
 What the table does say clearly is *where* the work matters. τ=0.25 is nearly
@@ -515,7 +596,7 @@ prior if time is short.
 ### Polish
 
 Large-neighbourhood search frees antennas that provably hold no building above
-threshold, then re-spends the budget under both neighbourhoods of §4.4. Gains at
+threshold, then re-spends the budget under both neighbourhoods of §4.5. Gains at
 a 150 s budget are consistent and largest where it matters: **+272** at
 (0.25,500), **+416** at (0.5,1000), **+360** at (0.75,1000). It keeps the best
 solution seen, so it is safe to stop at any moment.
@@ -630,23 +711,16 @@ The whole point of the preceding work is that 15 Aug should be boring.
 Ranked by expected value against remaining effort. The first two are the ones
 worth doing before 15 Aug.
 
-1. **Parallel multi-start (GRASP).** This is the top item, because selection is
-   currently *single-threaded* — the 32 cores are saturated during the
-   contribution precompute and then sit idle for the entire search. Every
-   sub-problem starts from one deterministic greedy; running many randomised
-   starts concurrently and keeping the best is close to free wall-clock. It also
-   directly addresses the measured weakness above: the two polish
-   neighbourhoods currently split one budget, and with real parallelism both
-   could have the whole clock.
-2. **Knapsack-cover inequalities for a usable upper bound.** §4.2b showed the
-   natural LP relaxation is nearly worthless as a quality measure -- our solution
-   already attains 86% of it in the LP's own currency, because the LP cannot
-   reward finishing a building. Knapsack-cover inequalities (Carr–Fleischer–
-   Leung–Phillips) are the standard repair for covering LPs with exactly this
-   defect. Without them there is no honest optimality gap for this problem, only
-   comparisons against our own baselines. An alternative that sidesteps the LP
-   entirely: solve a *tiny* instance (≈40 buildings, k=3) exhaustively and
-   measure the true gap there.
+1. **An explicit 2-exchange local search.** The exhaustive test (§4.3) showed
+   the solver losing 20% on a *two-antenna* instance: textbook pair-blindness.
+   GRASP fixed that at k≤3 but did nothing at k=50 (§4.6), so the remedy has to
+   attack the mechanism directly rather than by sampling — remove any one
+   antenna, try every replacement, iterate to a local optimum. Unlike restarts,
+   its cost and benefit both scale with `k` rather than with the size of the
+   search space.
+2. **Extend exhaustive verification to k=4–5** via branch and bound rather than
+   enumeration, to check the gap does not widen with `k`. The current evidence
+   stops at k=3, which is the weakest part of the argument in §4.3.
 3. **Re-run the marginal-returns test (§4.1) on the final configuration.** It is
    the only optimality signal available without a competitor baseline. If the
    buildings-per-antenna curve is still rising at the operating `k`, budget is
