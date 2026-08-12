@@ -182,6 +182,90 @@ The best `p` depends strongly on τ, which is why it is tuned per sub-problem
 (§7). Too much convexity is actively harmful: at τ=0.75, `p=2` scores 4,090 while
 `p=5` scores 2,624.
 
+### 4.1 Knowing when the solution is bad: the marginal-returns test
+
+Scoring is relative, so "is 4,090 good?" has no internal answer — there is no
+optimum to compare against and no other team's number to look at. But there *is*
+a usable self-diagnostic.
+
+Plot service score against `k` for a fixed τ. At τ=0.75 the first version of this
+system produced:
+
+| antennas | 0 → 1000 | 1000 → 2000 | 2000 → 4000 |
+|---|---|---|---|
+| buildings gained per antenna | 4.09 | **4.38** | 2.20 |
+
+Marginal returns that *increase* are a tell. A best-first greedy should exhaust
+its best opportunities first; if antennas 1001–2000 are each worth more than
+antennas 1–1000, the early ones were misallocated. The mechanism is
+complementarity: the potential rewards progress toward a threshold, so early
+antennas get spent part-covering buildings the budget will never finish, and that
+investment only pays off at a `k` we do not have.
+
+This is a cheap, general test — it costs three extra runs — and it says
+"keep optimising" without needing to know the optimum. It is what motivated the
+next section.
+
+### 4.2 Target-set refinement ("focus")
+
+Stop pretending every building is reachable. Run once to learn which buildings
+the budget can plausibly finish, restrict the objective to that set plus a
+margin, and re-solve. Antennas then concentrate on buildings that will actually
+cross the line rather than being sprinkled across ones that will not. Iterate
+over several margins, keep the best.
+
+The score still counts every serviced building, including ones outside the target
+set that get finished incidentally — the mask shapes the search, it does not
+narrow the reward.
+
+Measured effect, before any polish:
+
+| τ | k | potential | **+ focus** | gain |
+|---|---|---|---|---|
+| 0.75 | 1000 | 4,090 | **4,591** | +12.3% |
+| 0.75 | 500 | 1,792 | **2,254** | +25.8% |
+| 0.75 | 50 | 193 | **238** | +23.3% |
+| 0.50 | 50 | 593 | **612** | +3.2% |
+| 0.50 | 500 | 5,379 | **5,409** | +0.6% |
+| 0.25 | 500 | 10,129 | 10,129 | 0 |
+
+Exactly the shape the diagnosis predicts: the gain is concentrated where
+completion-coupling binds, and vanishes at τ=0.25 where 98.5% of buildings finish
+with a single antenna and there is nothing to misallocate.
+
+### 4.3 The polish needs both neighbourhoods, not a choice between them
+
+Focus exposed a silent bug and then a subtler trade-off, in that order.
+
+The bug: the polish repairs a damaged solution by re-greedying, and it was
+re-greedying **unfocused**. An unfocused repair can never beat a focused solution
+— it just re-proposes the myopic placement focus had improved on — so the polish
+reported "no gain" and quietly did nothing. Carrying the winning mask into the
+repair recovered +178 at (0.75, 500).
+
+The trade-off: carrying the mask is also a wall. It hides every building outside
+the target set, and the polish can no longer discover that a building focus wrote
+off is reachable after all. Measured at a 90 s budget:
+
+| repair neighbourhood | (0.75, 500) | (0.5, 50) |
+|---|---|---|
+| masked (focus target set) | **2,432** | 666 |
+| unmasked (all buildings) | 2,254 | **735** |
+| alternating within one search | — | 708 |
+| **both, keep the better** | 2,426 | 703 |
+
+Neither neighbourhood dominates, and alternating inside a single search splits the
+difference rather than taking the maximum. Running both from the same start and
+keeping the winner lands within ~1% of the better one at each sub-problem without
+ever collapsing to the worse one. The residual shortfall is only that each half
+gets half the clock — it shrinks as the budget grows, which on run day it does.
+
+This one is worth flagging as a process point, not just a result: the regression
+at (0.5, 50) was caught **only** because an earlier run had recorded 735 for that
+combo. A change that improved the headline sub-problems while quietly costing 9%
+on another would otherwise have shipped looking like a win. Keep the per-combo
+history.
+
 ### What did not work, and why it is still in the tree
 
 A **bundle / ratio greedy** that directly targets `f`: for each unserviced
@@ -216,15 +300,22 @@ GeoJSON ──▶ Scene: rings normalised CCW, arc-length parameterised,
             nine sub-problems.                        ~5 s, 0.05 GB
                 │
                 ▼
-            Per (τ,k): lazy greedy on the tuned potential, then
-            large-neighbourhood polish                ~12 s + budget
+            Per (τ,k):
+              stage 1  rank convexity exponents with the cheap greedy
+              stage 2  re-solve the top exponents with target-set refinement
+              stage 3  large-neighbourhood polish, inheriting the target set
                 │
                 ▼
-            EXACT uncapped re-evaluation  ──▶ the claimed building list
+            EXACT re-evaluation  ──▶ the claimed building list
                 │
                 ▼
             submission.txt  ──▶  independent re-verification
 ```
+
+The three-stage split matters for time allocation: ranking exponents only needs
+a *ranking*, not a final answer, so it runs the cheap unfocused greedy. Focus
+costs ~5× per solve and is spent only on the finalists; the polish budget goes to
+the single winner.
 
 **The visibility primitive is a rotational plane sweep**, not point sampling. For
 an antenna `p`, sort every nearby edge endpoint by angle and sweep a ray through
@@ -299,52 +390,66 @@ threads.
 
 ### Algorithm comparison
 
-Service score (higher is better); `selfcover` = own-vertices-only baseline,
-`truncated` = the submodular surrogate that the first draft of this plan
-described, `final` = per-sub-problem tuned potential + polish.
+Service score (higher is better). `selfcover` = own-vertices-only baseline;
+`truncated` = the submodular surrogate a careful reading of the problem statement
+naturally produces, and what the first draft of this plan described; `final` =
+tuned potential + target-set refinement + dual-neighbourhood polish.
 
-| τ | k | selfcover | bundle | truncated | **final** | final / truncated |
+| τ | k | selfcover | bundle | truncated | **final** | final/truncated |
 |---|---|---|---|---|---|---|
-| 0.25 | 50 | 522 | 619 | 2,104 | **2,312** | 1.10 |
-| 0.25 | 500 | 3,464 | 4,725 | 9,705 | **10,364** | 1.07 |
-| 0.25 | 1000 | 5,906 | 8,444 | 12,525 | **12,746** | 1.02 |
-| 0.50 | 50 | 194 | 215 | 469 | **656** | 1.40 |
-| 0.50 | 500 | 2,166 | 2,434 | 4,731 | **5,658** | 1.20 |
-| 0.50 | 1000 | 4,258 | 5,117 | 8,971 | **9,633** | 1.07 |
-| 0.75 | 50 | 49 | 104 | 70 | **233** | 3.33 |
-| 0.75 | 500 | 698 | 1,070 | 1,262 | **2,051** | 1.63 |
-| 0.75 | 1000 | 1,395 | 2,381 | 3,398 | **4,524** | 1.33 |
+| 0.25 | 50 | 522 | 619 | 2,104 | **2,330** | 1.11 |
+| 0.25 | 500 | 3,464 | 4,725 | 9,705 | **10,472** | 1.08 |
+| 0.25 | 1000 | 5,906 | 8,444 | 12,525 | **12,788** | 1.02 |
+| 0.50 | 50 | 194 | 215 | 469 | **716** | 1.53 |
+| 0.50 | 500 | 2,166 | 2,434 | 4,731 | **5,671** | 1.20 |
+| 0.50 | 1000 | 4,258 | 5,117 | 8,971 | **9,746** | 1.09 |
+| 0.75 | 50 | 49 | 104 | 70 | **285** | 4.07 |
+| 0.75 | 500 | 698 | 1,070 | 1,262 | **2,437** | 1.93 |
+| 0.75 | 1000 | 1,395 | 2,381 | 3,398 | **5,023** | 1.48 |
 
-Read through the competition's relative scoring: if the field's best equals our
-`final` column, a team submitting the `truncated` approach — which is what a
-careful reading of the problem statement naturally produces — scores **6.98 / 9**.
-The gap is concentrated exactly where it hurts, at high τ and low k.
+A caveat on how to read that last column, because it is easy to oversell: it
+compares this system against *our own* earlier baseline, not against another
+team. Under the competition's relative scoring a `truncated` submission would
+earn **6.66 / 9** against ours — but that is a statement about how much the
+later work added, not evidence that 5,023 is near-optimal at (0.75, 1000).
+There is no external reference point, which is why §4.1 exists.
 
-Some context for the absolute numbers: at τ=0.25, k=1000 we service 12,746 of
-12,860 buildings — 99.1%. That combination is nearly saturated and will likely be
-a near-tie across serious teams, so it is worth almost nothing competitively. The
-sub-problems that will actually separate the field are **(0.75, 50)**,
-**(0.75, 500)** and **(0.5, 50)**, where the spread between methods is 3×. Budget
-run-day compute accordingly.
+What the table does say clearly is *where* the work matters. τ=0.25 is nearly
+saturated (12,788 of 12,860 at k=1000, 99.4%) and will likely be a near-tie
+across serious teams, worth almost nothing competitively. The sub-problems that
+separate the field are **(0.75, 50)**, **(0.75, 500)** and **(0.75, 1000)**,
+where method choice swings the score by 1.5–4×. Budget run-day compute there.
 
 ### Tuned exponent per sub-problem
 
 | τ \ k | 50 | 500 | 1000 |
 |---|---|---|---|
-| 0.25 | 4.0 | 4.0 | 4.0 |
-| 0.50 | 4.0 | 3.0 | 2.5 |
-| 0.75 | 2.5 | 2.0 | 2.0 |
+| 0.25 | 8.0 | 6.0 | 8.0 |
+| 0.50 | 8.0 | 3.0 | 3.0 |
+| 0.75 | 3.0 | 2.0 | 2.0 |
 
-Clean monotone structure — higher τ and larger k both want *less* convexity. The
-sweep is cheap (the contribution map is shared), so it is run per sub-problem
-rather than trusting this table; but the table is a good prior if time is short.
+Monotone structure: higher τ wants *less* convexity. The sweep is cheap, so it
+runs per sub-problem rather than trusting this table — but the table is a decent
+prior if time is short.
 
 ### Polish
 
 Large-neighbourhood search frees antennas that provably hold no building above
-threshold, then re-spends the budget. Gains are consistent and largest where it
-matters: **+45** at (0.25,50), **+277** at (0.5,500), **+434** at (0.75,1000).
-It keeps the best solution seen, so it is safe to stop at any moment.
+threshold, then re-spends the budget under both neighbourhoods of §4.3. Gains at
+a 150 s budget are consistent and largest where it matters: **+278** at
+(0.25,500), **+391** at (0.5,1000), **+432** at (0.75,1000). It keeps the best
+solution seen, so it is safe to stop at any moment.
+
+### Submission integrity
+
+The claimed building list is re-derived by an **uncapped** sweep before writing,
+not by the capped radius the search used — the cap is a speed-up, not a scoring
+decision. Skipping that step left 4 serviceable buildings unclaimed across the
+nine blocks. Independent re-verification of the final file:
+
+```
+9/9 blocks, 0 false claims, 0 unclaimed-but-serviceable, 0 unknown ids
+```
 
 ---
 
@@ -445,17 +550,26 @@ The whole point of the preceding work is that 15 Aug should be boring.
 Ranked by expected value against remaining effort. The first two are the ones
 worth doing before 15 Aug.
 
-1. **GRASP-style randomised restarts.** The polish already does randomised
-   destroy-repair, but every sub-problem starts from one deterministic greedy.
-   Several randomised starts, keeping the best, is a well-trodden few-percent on
-   exactly this kind of budgeted-coverage problem, and it parallelises perfectly
-   across the 32 cores that currently sit idle during selection.
-2. **A completion-aware polish move.** LNS currently frees redundant antennas and
+1. **Parallel multi-start (GRASP).** This is the top item, because selection is
+   currently *single-threaded* — the 32 cores are saturated during the
+   contribution precompute and then sit idle for the entire search. Every
+   sub-problem starts from one deterministic greedy; running many randomised
+   starts concurrently and keeping the best is close to free wall-clock. It also
+   directly addresses the measured weakness above: the two polish
+   neighbourhoods currently split one budget, and with real parallelism both
+   could have the whole clock.
+2. **Re-run the marginal-returns test (§4.1) on the final configuration.** It is
+   the only optimality signal available without a competitor baseline. If the
+   buildings-per-antenna curve is still rising at the operating `k`, budget is
+   still being misallocated and there is more to take. If it has flattened, the
+   remaining gap is candidate quality, not search — which points at item 4
+   instead.
+3. **A completion-aware polish move.** LNS currently frees redundant antennas and
    re-greedies. A targeted move — for each building just below τ, find the single
    cheapest candidate that would finish it, and swap it against a provably
    redundant antenna — attacks precisely the (0.75, small k) regime where the
    spread between methods is widest.
-3. ~~**Edge-interior candidate sites.**~~ **Tested, and the answer is no.**
+4. ~~**Edge-interior candidate sites.**~~ **Tested, and the answer is no.**
    Adding candidates every 15 m and every 8 m along edges:
 
    | spacing | candidates | τ=0.75, k=1000 | τ=0.5, k=500 | precompute |
@@ -474,11 +588,11 @@ worth doing before 15 Aug.
    of "critical constraints" (lines through pairs of nearby vertices, intersected
    with the host edge) rather than to a uniform grid — remains untested, but the
    negative result above makes it a low-probability bet.
-4. **Exact per-building completion by ILP.** For the buildings that matter,
+5. **Exact per-building completion by ILP.** For the buildings that matter,
    completion is a tiny set-cover instance; greedy set cover is used now. An
    exact solve would tighten the bundle machinery — but that machinery is the one
    that lost, so this is speculative.
-5. **Exactly-collinear grazing walls.** The sweep drops non-incident edges that
+6. **Exactly-collinear grazing walls.** The sweep drops non-incident edges that
    are exactly edge-on, since they subtend zero angle. Measured absent from the
    sample dataset, and a counter is wired in so a different dataset would surface
    it rather than silently losing length. If the counter fires on 15 Aug, those
