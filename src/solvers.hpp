@@ -35,7 +35,7 @@
 namespace gc {
 
 enum class Algo { SelfCover, Truncated, Bundle, BundleLNS, Potential, PotentialLNS,
-                  Focus, FocusLNS };
+                  Focus, FocusLNS, CostAware, CostAwareLNS };
 
 inline const char* algo_name(Algo a) {
     switch (a) {
@@ -47,6 +47,8 @@ inline const char* algo_name(Algo a) {
         case Algo::PotentialLNS: return "potential+lns";
         case Algo::Focus: return "focus";
         case Algo::FocusLNS: return "focus+lns";
+        case Algo::CostAware: return "costaware";
+        case Algo::CostAwareLNS: return "costaware+lns";
     }
     return "?";
 }
@@ -54,8 +56,10 @@ inline const char* algo_name(Algo a) {
 class Solver {
 public:
     Solver(const Scene& sc, const std::vector<Candidate>& cands, const Contribs& C,
-           const InvIndex& I, double tau, double power = 1.0, bool normalise = false)
-        : sc_(sc), cands_(cands), C_(C), I_(I), tau_(tau), power_(power), norm_(normalise) {
+           const InvIndex& I, double tau, double power = 1.0, bool normalise = false,
+           bool cost_mode = false)
+        : sc_(sc), cands_(cands), C_(C), I_(I), tau_(tau), power_(power), norm_(normalise),
+          cost_mode_(cost_mode) {
         size_t nb = sc.buildings.size();
         cov_.resize(nb);
         serviced_.assign(nb, 0);
@@ -63,6 +67,22 @@ public:
         for (size_t b = 0; b < nb; ++b) target_[b] = tau * sc.buildings[b].perimeter;
         chosen_.assign(cands.size(), 0);
         active_.assign(nb, 1);
+        // reach_[b] = the largest slice of b's boundary any single antenna
+        // delivers. It is the exchange rate between metres and antennas, and it
+        // is what lets the potential below price a building's remaining work in
+        // the same currency as the budget.
+        reach_.assign(nb, 0.0);
+        for (size_t c = 0; c + 1 < C.start.size(); ++c) {
+            int64_t a = C.start[c], z = C.start[c + 1];
+            for (int64_t j = a; j < z;) {
+                int32_t b = C.bld[j];
+                int64_t e = j;
+                double tot = 0;
+                while (e < z && C.bld[e] == b) { tot += C.s1[e] - C.s0[e]; ++e; }
+                if (tot > reach_[b]) reach_[b] = tot;
+                j = e;
+            }
+        }
     }
 
     void reset() {
@@ -106,10 +126,30 @@ public:
             }
             if (!serviced_[b] && active_[b] && fresh > 0) {
                 double T = target_[b];
-                double u0 = std::min(cov_[b].measure, T) / T;
-                double u1 = std::min(cov_[b].measure + fresh, T) / T;
-                double d = phi(u1) - phi(u0);
-                g += norm_ ? d : d * T;
+                if (cost_mode_) {
+                    // Price the remaining work in antennas, not metres.
+                    //
+                    //   need  = boundary still required
+                    //   reach = what one antenna can deliver here
+                    //   need/reach = antenna-units still outstanding
+                    //
+                    // Value a building at 1/(1 + units)^q: full credit when it is
+                    // finished, and steeply diminishing credit the more antennas
+                    // it would still take. An antenna that drags a building from
+                    // three-still-needed to two now earns something, and one that
+                    // polishes a building nobody will ever finish earns almost
+                    // nothing -- which is precisely the misallocation the
+                    // marginal-returns test exposed.
+                    double r = reach_[b] > 0 ? reach_[b] : T;
+                    double n0 = std::max(0.0, T - cov_[b].measure) / r;
+                    double n1 = std::max(0.0, T - cov_[b].measure - fresh) / r;
+                    g += std::pow(1.0 / (1.0 + n1), power_) - std::pow(1.0 / (1.0 + n0), power_);
+                } else {
+                    double u0 = std::min(cov_[b].measure, T) / T;
+                    double u1 = std::min(cov_[b].measure + fresh, T) / T;
+                    double d = phi(u1) - phi(u0);
+                    g += norm_ ? d : d * T;
+                }
             }
             j = e;
         }
@@ -184,6 +224,8 @@ private:
     std::vector<char> chosen_;
     std::vector<char> active_;  // buildings the objective is allowed to care about
     std::vector<double> target_;
+    std::vector<double> reach_;
+    bool cost_mode_ = false;  // price remaining work in antennas rather than metres
     std::vector<int32_t> picked_;
     int score_ = 0;
 };
@@ -244,8 +286,16 @@ inline void Solver::run_greedy(int k, bool verbose) {
             while (e < z && C_.bld[e] == b) { tot += C_.s1[e] - C_.s0[e]; ++e; }
             if (active_[b]) {
                 double T = target_[b];
-                double d = phi(std::min(tot, T) / T);
-                g += norm_ ? d : d * T;
+                if (cost_mode_) {
+                    double r = reach_[b] > 0 ? reach_[b] : T;
+                    double n0 = T / r;
+                    double n1 = std::max(0.0, T - tot) / r;
+                    g += std::pow(1.0 / (1.0 + n1), power_) -
+                         std::pow(1.0 / (1.0 + n0), power_);
+                } else {
+                    double d = phi(std::min(tot, T) / T);
+                    g += norm_ ? d : d * T;
+                }
             }
             j = e;
         }
@@ -571,6 +621,11 @@ inline void Solver::run(Algo algo, int k, double time_budget_sec, unsigned seed,
             lns(k, time_budget_sec, seed, verbose, std::vector<char>(active_.size(), 1));
             break;
         case Algo::Focus: run_focus(k, verbose); break;
+        case Algo::CostAware: cost_mode_ = true; run_focus(k, verbose); break;
+        case Algo::CostAwareLNS:
+            cost_mode_ = true;
+            run(Algo::FocusLNS, k, time_budget_sec, seed, verbose);
+            return;
         case Algo::FocusLNS: {
             run_focus(k, verbose);
             // Polish under both neighbourhoods and keep the better.
