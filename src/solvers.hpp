@@ -34,7 +34,8 @@
 
 namespace gc {
 
-enum class Algo { SelfCover, Truncated, Bundle, BundleLNS, Potential, PotentialLNS };
+enum class Algo { SelfCover, Truncated, Bundle, BundleLNS, Potential, PotentialLNS,
+                  Focus, FocusLNS };
 
 inline const char* algo_name(Algo a) {
     switch (a) {
@@ -44,6 +45,8 @@ inline const char* algo_name(Algo a) {
         case Algo::BundleLNS: return "bundle+lns";
         case Algo::Potential: return "potential";
         case Algo::PotentialLNS: return "potential+lns";
+        case Algo::Focus: return "focus";
+        case Algo::FocusLNS: return "focus+lns";
     }
     return "?";
 }
@@ -59,6 +62,7 @@ public:
         target_.resize(nb);
         for (size_t b = 0; b < nb; ++b) target_[b] = tau * sc.buildings[b].perimeter;
         chosen_.assign(cands.size(), 0);
+        active_.assign(nb, 1);
     }
 
     void reset() {
@@ -100,7 +104,7 @@ public:
                 fresh += cov_[b].probe(C_.s0[e], C_.s1[e]);
                 ++e;
             }
-            if (!serviced_[b] && fresh > 0) {
+            if (!serviced_[b] && active_[b] && fresh > 0) {
                 double T = target_[b];
                 double u0 = std::min(cov_[b].measure, T) / T;
                 double u1 = std::min(cov_[b].measure + fresh, T) / T;
@@ -158,7 +162,9 @@ private:
     void run_greedy(int k, bool verbose);
     void run_bundle(int k, bool verbose);
     void run_selfcover(int k, bool verbose);
-    void lns(int k, double time_budget_sec, unsigned seed, bool verbose);
+    void run_focus(int k, bool verbose);
+    int lns(int k, double time_budget_sec, unsigned seed, bool verbose,
+            const std::vector<char>& mask);
 
     // Cheapest set of extra candidates that would finish building b, found by
     // greedy set cover over the candidates that see b. Returns cost, or -1 if
@@ -176,6 +182,7 @@ private:
     std::vector<ArcSet> cov_;
     std::vector<char> serviced_;
     std::vector<char> chosen_;
+    std::vector<char> active_;  // buildings the objective is allowed to care about
     std::vector<double> target_;
     std::vector<int32_t> picked_;
     int score_ = 0;
@@ -235,9 +242,11 @@ inline void Solver::run_greedy(int k, bool verbose) {
             int64_t e = j;
             double tot = 0;
             while (e < z && C_.bld[e] == b) { tot += C_.s1[e] - C_.s0[e]; ++e; }
-            double T = target_[b];
-            double d = phi(std::min(tot, T) / T);
-            g += norm_ ? d : d * T;
+            if (active_[b]) {
+                double T = target_[b];
+                double d = phi(std::min(tot, T) / T);
+                g += norm_ ? d : d * T;
+            }
             j = e;
         }
         g0[c] = g;
@@ -390,6 +399,71 @@ inline void Solver::run_selfcover(int k, bool verbose) {
                      picked_.size(), score_);
 }
 
+
+// Target-set refinement ("focus").
+//
+// Diagnosis this exists to fix: at high tau and tight k the greedy shows
+// *increasing* marginal returns -- 4.09 buildings per antenna over the first
+// thousand, then 4.38 over the second. For a best-first greedy that is a tell.
+// The objective rewards progress toward a threshold, so early antennas get spent
+// part-covering buildings that the budget will never actually finish, and that
+// investment only pays off at a k we do not have.
+//
+// The fix is to stop pretending every building is reachable. Run once to learn
+// which buildings the budget can plausibly finish, restrict the objective to
+// that set plus a margin, and re-solve. Antennas then concentrate on buildings
+// that will actually cross the line. Iterate, keeping the best.
+//
+// Note the score still counts every serviced building, including ones outside
+// the target set that get finished incidentally -- the mask shapes the search,
+// it does not narrow the reward.
+inline void Solver::run_focus(int k, bool verbose) {
+    std::fill(active_.begin(), active_.end(), 1);
+    run_greedy(k, false);
+    int best = score_;
+    std::vector<int32_t> best_pick = picked_;
+    std::vector<char> best_active = active_;
+    size_t nb = sc_.buildings.size();
+
+    // Rank buildings by how far the last round got them toward the threshold.
+    std::vector<std::pair<double, int32_t>> rank(nb);
+
+    for (double grow : {1.00, 1.15, 1.35, 1.60}) {
+        for (int b = 0; b < (int)nb; ++b) {
+            double u = std::min(cov_[b].measure, target_[b]) / target_[b];
+            rank[b] = {serviced_[b] ? 2.0 : u, (int32_t)b};
+        }
+        std::sort(rank.begin(), rank.end(),
+                  [](const std::pair<double, int32_t>& x, const std::pair<double, int32_t>& y) {
+                      return x.first > y.first;
+                  });
+        size_t take = std::min(nb, (size_t)(best * grow) + 1);
+        std::fill(active_.begin(), active_.end(), 0);
+        for (size_t i = 0; i < take; ++i) active_[rank[i].second] = 1;
+
+        reset();
+        run_greedy(k, false);
+        if (score_ > best) {
+            best = score_;
+            best_pick = picked_;
+            best_active = active_;
+        }
+        if (verbose)
+            std::fprintf(stderr, "[focus] grow=%.2f target=%zu -> score=%d (best %d)\n", grow,
+                         take, score_, best);
+    }
+
+    // Keep the winning mask in place. The polish that runs after this repairs by
+    // re-greedying, and an unfocused repair can never beat a focused solution --
+    // it would just propose the same myopic placement that focus improved on.
+    // The score itself never consults the mask, so this only shapes the search.
+    active_ = best_active;
+    picked_ = best_pick;
+    std::fill(chosen_.begin(), chosen_.end(), 0);
+    for (int32_t c : picked_) chosen_[c] = 1;
+    rebuild();
+}
+
 inline void Solver::rebuild() {
     for (auto& a : cov_) a.clear();
     std::fill(serviced_.begin(), serviced_.end(), 0);
@@ -402,10 +476,15 @@ inline void Solver::rebuild() {
         if (cov_[b].measure >= target_[b]) { serviced_[b] = 1; ++score_; }
 }
 
-inline void Solver::lns(int k, double time_budget_sec, unsigned seed, bool verbose) {
+inline int Solver::lns(int k, double time_budget_sec, unsigned seed, bool verbose,
+                       const std::vector<char>& mask) {
     // Large-neighbourhood search: free antennas that provably are not holding
-    // any building above threshold, then re-spend the budget with the bundle
-    // greedy. Keeps the best solution seen, so it is safe to stop at any time.
+    // any building above threshold, then re-spend the budget with the greedy.
+    // Keeps the best solution seen, so it is safe to stop at any time.
+    //
+    // The repair inherits whatever target-set mask is in place. That matters:
+    // repairing *unfocused* can never beat a focused solution, so an inherited
+    // mask is what makes this useful on top of run_focus rather than a no-op.
     auto t0 = std::chrono::steady_clock::now();
     auto elapsed = [&] {
         return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
@@ -414,6 +493,8 @@ inline void Solver::lns(int k, double time_budget_sec, unsigned seed, bool verbo
     std::vector<int32_t> best = picked_;
     int best_score = score_;
     int rounds = 0, improved = 0;
+
+    active_ = mask;
 
     while (elapsed() < time_budget_sec) {
         ++rounds;
@@ -471,6 +552,7 @@ inline void Solver::lns(int k, double time_budget_sec, unsigned seed, bool verbo
     if (verbose)
         std::fprintf(stderr, "[lns] tau=%.2f k=%d rounds=%d improved=%d score=%d\n", tau_, k,
                      rounds, improved, score_);
+    return best_score;
 }
 
 inline void Solver::run(Algo algo, int k, double time_budget_sec, unsigned seed, bool verbose) {
@@ -482,12 +564,48 @@ inline void Solver::run(Algo algo, int k, double time_budget_sec, unsigned seed,
         case Algo::Bundle: run_bundle(k, verbose); break;
         case Algo::BundleLNS:
             run_bundle(k, verbose);
-            lns(k, time_budget_sec, seed, verbose);
+            lns(k, time_budget_sec, seed, verbose, std::vector<char>(active_.size(), 1));
             break;
         case Algo::PotentialLNS:
             run_greedy(k, verbose);
-            lns(k, time_budget_sec, seed, verbose);
+            lns(k, time_budget_sec, seed, verbose, std::vector<char>(active_.size(), 1));
             break;
+        case Algo::Focus: run_focus(k, verbose); break;
+        case Algo::FocusLNS: {
+            run_focus(k, verbose);
+            // Polish under both neighbourhoods and keep the better.
+            //
+            // Repairing under the focused mask is what lets the polish improve
+            // on a focused solution at all -- an unfocused repair just
+            // re-proposes the myopic placement focus already beat. But the mask
+            // is also a wall: it hides every building outside the target set.
+            // Measured, neither dominates -- masked wins by 178 at
+            // (0.75, 500), unmasked wins by 69 at (0.5, 50) -- and alternating
+            // within one search splits the difference instead of taking the
+            // max. So run both from the same start and keep the winner.
+            const std::vector<char> focus_mask = active_;
+            const std::vector<char> full_mask(active_.size(), 1);
+            std::vector<int32_t> start = picked_;
+
+            int a_score = lns(k, time_budget_sec * 0.5, seed, verbose, focus_mask);
+            std::vector<int32_t> a_pick = picked_;
+
+            picked_ = start;
+            std::fill(chosen_.begin(), chosen_.end(), 0);
+            for (int32_t c : picked_) chosen_[c] = 1;
+            active_ = full_mask;
+            rebuild();
+            int b_score = lns(k, time_budget_sec * 0.5, seed + 1, verbose, full_mask);
+
+            if (a_score > b_score) {
+                picked_ = a_pick;
+                std::fill(chosen_.begin(), chosen_.end(), 0);
+                for (int32_t c : picked_) chosen_[c] = 1;
+                rebuild();
+            }
+            std::fill(active_.begin(), active_.end(), 1);
+            break;
+        }
     }
 }
 

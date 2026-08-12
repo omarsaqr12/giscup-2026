@@ -52,15 +52,29 @@ struct Args {
     double lns_sec = 20.0;
     double verify_radius = -1.0;  // <=0 means uncapped (exact)
     double cell = 40.0;
-    Algo algo = Algo::PotentialLNS;
+    Algo algo = Algo::FocusLNS;
     double power = 1.0;
     bool normalise = true;
     unsigned seed = 12345;
+    std::string rewrite;
     int subset = 0;
     bool verbose = true;
     bool autotune = true;
+    int finalists = 2;  // exponents promoted from the cheap sweep to the focused run
     std::vector<double> powers{1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0, 8.0};
 };
+
+// The exponent sweep runs the un-polished variant; the winner is then polished.
+static Algo base_algo(Algo a) {
+    if (a == Algo::FocusLNS || a == Algo::Focus) return Algo::Focus;
+    if (a == Algo::PotentialLNS || a == Algo::Potential) return Algo::Potential;
+    return a;
+}
+static Algo polish_algo(Algo a) {
+    if (a == Algo::Focus || a == Algo::FocusLNS) return Algo::FocusLNS;
+    if (a == Algo::Potential || a == Algo::PotentialLNS) return Algo::PotentialLNS;
+    return a;
+}
 
 static Algo parse_algo(const std::string& s) {
     if (s == "selfcover") return Algo::SelfCover;
@@ -68,7 +82,9 @@ static Algo parse_algo(const std::string& s) {
     if (s == "bundle") return Algo::Bundle;
     if (s == "bundle+lns") return Algo::BundleLNS;
     if (s == "potential") return Algo::Potential;
-    return Algo::PotentialLNS;
+    if (s == "focus") return Algo::Focus;
+    if (s == "potential+lns") return Algo::PotentialLNS;
+    return Algo::FocusLNS;
 }
 
 // ---------------------------------------------------------------------------
@@ -159,14 +175,29 @@ static int cmd_solve(const Args& A) {
             // and scoring is relative *per sub-problem*, so each of the nine is
             // tuned on its own. The contribution map is shared, so a sweep only
             // costs selection time.
+            // Two-stage tuning. The exponent sweep runs the cheap unfocused
+            // greedy -- it only has to *rank* exponents, not produce the final
+            // answer. The top few then get the expensive focused treatment, and
+            // the winner of that gets the polish budget. Sweeping every exponent
+            // with focus would cost 5x for a ranking we already have.
             std::vector<double> pows = A.autotune ? A.powers : std::vector<double>{A.power};
-            double best_p = pows[0];
-            int best_score = -1, best_search = -1;
-            std::vector<Vec2> best_ants;
-            std::vector<int32_t> best_claim;
+            std::vector<std::pair<int, double>> ranked;
             for (double pw : pows) {
                 Solver S(sc, cands, C, I, tau, pw, A.normalise);
                 S.run(Algo::Potential, k, 0.0, A.seed, false);
+                ranked.emplace_back(S.score(), pw);
+            }
+            std::sort(ranked.begin(), ranked.end(),
+                      [](const std::pair<int, double>& x, const std::pair<int, double>& y) {
+                          return x.first > y.first;
+                      });
+            size_t finalists = std::min<size_t>(ranked.size(), A.finalists);
+
+            double best_p = ranked.empty() ? A.power : ranked[0].second;
+            int best_score = -1, best_search = -1;
+            std::vector<Vec2> best_ants;
+            std::vector<int32_t> best_claim;
+            auto harvest = [&](Solver& S, double pw) {
                 std::vector<Vec2> ants;
                 for (int32_t c : S.picked()) ants.push_back(cands[c].p);
                 for (size_t i = ants.size(); i < (size_t)k; ++i)
@@ -176,30 +207,39 @@ static int cmd_solve(const Args& A) {
                     best_score = v.score; best_search = S.score(); best_p = pw;
                     best_ants = ants; best_claim = v.claimed;
                 }
+            };
+            for (size_t i = 0; i < finalists; ++i) {
+                Solver S(sc, cands, C, I, tau, ranked[i].second, A.normalise);
+                S.run(base_algo(A.algo), k, 0.0, A.seed, false);
+                harvest(S, ranked[i].second);
             }
             std::printf("%-6g %-6d %-7.1f %9d %9d %7.1f %s\n", tau, k, best_p, best_score,
                         best_search, now_s() - ts, A.autotune ? "tuned" : "");
             std::fflush(stdout);
 
-            // Spend the remaining time budget polishing the winner.
             if (A.lns_sec > 0) {
                 double ts2 = now_s();
+                int before = best_score;
                 Solver S(sc, cands, C, I, tau, best_p, A.normalise);
-                S.run(Algo::PotentialLNS, k, A.lns_sec, A.seed, false);
-                std::vector<Vec2> ants;
-                for (int32_t c : S.picked()) ants.push_back(cands[c].p);
-                for (size_t i = ants.size(); i < (size_t)k; ++i)
-                    ants.push_back(cands[(A.seed * 2654435761u + (unsigned)i) % cands.size()].p);
-                Verdict v = verify(sc, vis, ants, tau, 0.0, A.verify_radius);
-                if (v.score > best_score) {
-                    std::printf("%-6g %-6d %-7.1f %9d %9d %7.1f lns +%d\n", tau, k, best_p,
-                                v.score, S.score(), now_s() - ts2, v.score - best_score);
-                    best_score = v.score; best_ants = ants; best_claim = v.claimed;
-                } else {
-                    std::printf("%-6g %-6d %-7.1f %9d %9d %7.1f lns no gain\n", tau, k, best_p,
-                                v.score, S.score(), now_s() - ts2);
-                }
+                S.run(polish_algo(A.algo), k, A.lns_sec, A.seed, false);
+                harvest(S, best_p);
+                std::printf("%-6g %-6d %-7.1f %9d %9d %7.1f %s\n", tau, k, best_p, best_score,
+                            best_search, now_s() - ts2,
+                            best_score > before ? ("lns +" + std::to_string(best_score - before)).c_str()
+                                                : "lns no gain");
                 std::fflush(stdout);
+            }
+            // The capped radius is a search speed-up, not a scoring decision.
+            // Re-derive the claimed set exactly before writing it out, so we
+            // never decline to claim a building we can demonstrably serve.
+            if (A.verify_radius > 0) {
+                Verdict exact = verify(sc, vis, best_ants, tau, 0.0, -1.0);
+                if (exact.score > best_score) {
+                    std::printf("%-6g %-6d %-7.1f %9d %9s %7s exact claim +%d\n", tau, k, best_p,
+                                exact.score, "-", "-", exact.score - best_score);
+                    std::fflush(stdout);
+                }
+                best_claim = exact.claimed;
             }
             results.emplace_back(tau, k, best_ants, best_claim);
         }
@@ -331,6 +371,7 @@ static int cmd_verify(const Args& A) {
 
     std::ifstream in(A.out);
     if (!in) { std::fprintf(stderr, "cannot open %s\n", A.out.c_str()); return 2; }
+    FILE* out_fixed = A.rewrite.empty() ? nullptr : std::fopen(A.rewrite.c_str(), "w");
     std::string l1, l2, l3;
     int blocks = 0, problems = 0;
     while (std::getline(in, l1) && std::getline(in, l2) && std::getline(in, l3)) {
@@ -403,11 +444,28 @@ static int cmd_verify(const Args& A) {
         std::printf("block %d  tau=%-5g k=%-5d antennas=%-5zu claimed=%-6zu verified=%-6d"
                     " false=%-4d missed=%-4d unknown_id=%d\n",
                     blocks, tau, k, ants.size(), ids.size(), ok, false_claim, missed, unknown);
+        if (out_fixed) {
+            std::fprintf(out_fixed, "%g,%d\n", tau, k);
+            for (size_t i = 0; i < ants.size(); ++i)
+                std::fprintf(out_fixed, "%s(%.17g,%.17g)", i ? "," : "", ants[i].x, ants[i].y);
+            std::fputc('\n', out_fixed);
+            bool first = true;
+            for (size_t b = 0; b < cov.size(); ++b) {
+                if (cov[b] < tau) continue;
+                std::fprintf(out_fixed, "%s%s", first ? "" : ",", sc.buildings[b].id.c_str());
+                first = false;
+            }
+            std::fputc('\n', out_fixed);
+        }
         if (false_claim) {
             std::printf("          worst shortfall %.6f below tau\n", worst_short);
             ++problems;
         }
         if (unknown) ++problems;
+    }
+    if (out_fixed) {
+        std::fclose(out_fixed);
+        std::printf("rewrote claim lines -> %s\n", A.rewrite.c_str());
     }
     if (blocks != 9) { std::printf("expected 9 blocks, found %d\n", blocks); ++problems; }
     std::printf("\n%s\n", problems ? "SUBMISSION HAS PROBLEMS" : "SUBMISSION OK");
@@ -435,8 +493,10 @@ int main(int argc, char** argv) {
         else if (a == "--raw") A.normalise = false;
         else if (a == "--powers") A.powers = parse_list(next());
         else if (a == "--no-auto") A.autotune = false;
+        else if (a == "--finalists") A.finalists = std::atoi(next().c_str());
         else if (a == "--verify-radius") A.verify_radius = std::atof(next().c_str());
         else if (a == "--subset") A.subset = std::atoi(next().c_str());
+        else if (a == "--rewrite") A.rewrite = next();
     }
     now_s();
     try {
