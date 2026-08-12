@@ -66,11 +66,13 @@ struct Args {
 
 // The exponent sweep runs the un-polished variant; the winner is then polished.
 static Algo base_algo(Algo a) {
+    if (a == Algo::CostAwareLNS || a == Algo::CostAware) return Algo::CostAware;
     if (a == Algo::FocusLNS || a == Algo::Focus) return Algo::Focus;
     if (a == Algo::PotentialLNS || a == Algo::Potential) return Algo::Potential;
     return a;
 }
 static Algo polish_algo(Algo a) {
+    if (a == Algo::CostAware || a == Algo::CostAwareLNS) return Algo::CostAwareLNS;
     if (a == Algo::Focus || a == Algo::FocusLNS) return Algo::FocusLNS;
     if (a == Algo::Potential || a == Algo::PotentialLNS) return Algo::PotentialLNS;
     return a;
@@ -83,6 +85,8 @@ static Algo parse_algo(const std::string& s) {
     if (s == "bundle+lns") return Algo::BundleLNS;
     if (s == "potential") return Algo::Potential;
     if (s == "focus") return Algo::Focus;
+    if (s == "costaware") return Algo::CostAware;
+    if (s == "costaware+lns") return Algo::CostAwareLNS;
     if (s == "potential+lns") return Algo::PotentialLNS;
     return Algo::FocusLNS;
 }
@@ -165,8 +169,8 @@ static int cmd_solve(const Args& A) {
     InvIndex I = build_inverse(sc, C, cands.size());
 
     std::vector<std::tuple<double, int, std::vector<Vec2>, std::vector<int32_t>>> results;
-    std::printf("%-6s %-6s %-7s %9s %9s %7s %s\n", "tau", "k", "power", "exact", "search",
-                "sec", "note");
+    std::printf("%-6s %-6s %-5s %-6s %9s %9s %7s %s\n", "tau", "k", "pow", "price",
+                "exact", "search", "sec", "note");
     for (double tau : A.taus) {
         for (double kd : A.ks) {
             int k = (int)kd;
@@ -180,50 +184,67 @@ static int cmd_solve(const Args& A) {
             // answer. The top few then get the expensive focused treatment, and
             // the winner of that gets the polish budget. Sweeping every exponent
             // with focus would cost 5x for a ranking we already have.
+            // Two ways to price a building's remaining work, swept together
+            // with the convexity exponent:
+            //
+            //   metres   phi(u) = u^q on fraction-of-threshold covered
+            //   antennas 1/(1+need/reach)^q on antenna-units outstanding
+            //
+            // Neither dominates -- antenna-pricing wins by 3% at (0.75, 500)
+            // and loses by 14% at (0.5, 50) -- and scoring is relative per
+            // sub-problem, so the choice is made per sub-problem by measurement
+            // rather than by argument.
             std::vector<double> pows = A.autotune ? A.powers : std::vector<double>{A.power};
-            std::vector<std::pair<int, double>> ranked;
-            for (double pw : pows) {
-                Solver S(sc, cands, C, I, tau, pw, A.normalise);
-                S.run(Algo::Potential, k, 0.0, A.seed, false);
-                ranked.emplace_back(S.score(), pw);
+            struct Cfg { double pw; bool cost; };
+            std::vector<std::pair<int, Cfg>> ranked;
+            for (bool cost : {false, true}) {
+                if (cost && !A.autotune) continue;
+                for (double pw : pows) {
+                    Solver S(sc, cands, C, I, tau, pw, A.normalise, cost);
+                    S.run(Algo::Potential, k, 0.0, A.seed, false);
+                    ranked.push_back({S.score(), Cfg{pw, cost}});
+                }
             }
             std::sort(ranked.begin(), ranked.end(),
-                      [](const std::pair<int, double>& x, const std::pair<int, double>& y) {
+                      [](const std::pair<int, Cfg>& x, const std::pair<int, Cfg>& y) {
                           return x.first > y.first;
                       });
             size_t finalists = std::min<size_t>(ranked.size(), A.finalists);
 
-            double best_p = ranked.empty() ? A.power : ranked[0].second;
+            Cfg best_cfg = ranked.empty() ? Cfg{A.power, false} : ranked[0].second;
             int best_score = -1, best_search = -1;
             std::vector<Vec2> best_ants;
             std::vector<int32_t> best_claim;
-            auto harvest = [&](Solver& S, double pw) {
+            auto harvest = [&](Solver& S, Cfg cfg) {
                 std::vector<Vec2> ants;
                 for (int32_t c : S.picked()) ants.push_back(cands[c].p);
                 for (size_t i = ants.size(); i < (size_t)k; ++i)
                     ants.push_back(cands[(A.seed * 2654435761u + (unsigned)i) % cands.size()].p);
                 Verdict v = verify(sc, vis, ants, tau, 0.0, A.verify_radius);
                 if (v.score > best_score) {
-                    best_score = v.score; best_search = S.score(); best_p = pw;
+                    best_score = v.score; best_search = S.score(); best_cfg = cfg;
                     best_ants = ants; best_claim = v.claimed;
                 }
             };
             for (size_t i = 0; i < finalists; ++i) {
-                Solver S(sc, cands, C, I, tau, ranked[i].second, A.normalise);
+                Cfg cfg = ranked[i].second;
+                Solver S(sc, cands, C, I, tau, cfg.pw, A.normalise, cfg.cost);
                 S.run(base_algo(A.algo), k, 0.0, A.seed, false);
-                harvest(S, ranked[i].second);
+                harvest(S, cfg);
             }
-            std::printf("%-6g %-6d %-7.1f %9d %9d %7.1f %s\n", tau, k, best_p, best_score,
-                        best_search, now_s() - ts, A.autotune ? "tuned" : "");
+            std::printf("%-6g %-6d %-5.1f %-6s %9d %9d %7.1f %s\n", tau, k, best_cfg.pw,
+                        best_cfg.cost ? "ant" : "metre", best_score, best_search, now_s() - ts,
+                        A.autotune ? "tuned" : "");
             std::fflush(stdout);
 
             if (A.lns_sec > 0) {
                 double ts2 = now_s();
                 int before = best_score;
-                Solver S(sc, cands, C, I, tau, best_p, A.normalise);
+                Solver S(sc, cands, C, I, tau, best_cfg.pw, A.normalise, best_cfg.cost);
                 S.run(polish_algo(A.algo), k, A.lns_sec, A.seed, false);
-                harvest(S, best_p);
-                std::printf("%-6g %-6d %-7.1f %9d %9d %7.1f %s\n", tau, k, best_p, best_score,
+                harvest(S, best_cfg);
+                std::printf("%-6g %-6d %-5.1f %-6s %9d %9d %7.1f %s\n", tau, k, best_cfg.pw,
+                            best_cfg.cost ? "ant" : "metre", best_score,
                             best_search, now_s() - ts2,
                             best_score > before ? ("lns +" + std::to_string(best_score - before)).c_str()
                                                 : "lns no gain");
@@ -235,8 +256,9 @@ static int cmd_solve(const Args& A) {
             if (A.verify_radius > 0) {
                 Verdict exact = verify(sc, vis, best_ants, tau, 0.0, -1.0);
                 if (exact.score > best_score) {
-                    std::printf("%-6g %-6d %-7.1f %9d %9s %7s exact claim +%d\n", tau, k, best_p,
-                                exact.score, "-", "-", exact.score - best_score);
+                    std::printf("%-6g %-6d %-5.1f %-6s %9d %9s %7s exact claim +%d\n", tau, k,
+                                best_cfg.pw, best_cfg.cost ? "ant" : "metre", exact.score, "-",
+                                "-", exact.score - best_score);
                     std::fflush(stdout);
                 }
                 best_claim = exact.claimed;
@@ -435,6 +457,13 @@ static int cmd_verify(const Args& A) {
         }
         int false_claim = 0, missed = 0, ok = 0;
         double worst_short = 0;
+        // The LP relaxation's objective in disguise: it can set z_b to
+        // (covered)/(tau*P_b), so its bound is really sum_b min(1, cov/target).
+        // Reporting the same quantity for our integral solution shows how much
+        // of any LP gap is the threshold relaxation rather than solution quality.
+        double lp_value = 0;
+        for (size_t b = 0; b < cov.size(); ++b)
+            lp_value += std::min(1.0, cov[b] / tau);
         for (size_t b = 0; b < cov.size(); ++b) {
             bool real = cov[b] >= tau;
             if (claimed[b] && !real) { ++false_claim; worst_short = std::max(worst_short, tau - cov[b]); }
@@ -444,6 +473,7 @@ static int cmd_verify(const Args& A) {
         std::printf("block %d  tau=%-5g k=%-5d antennas=%-5zu claimed=%-6zu verified=%-6d"
                     " false=%-4d missed=%-4d unknown_id=%d\n",
                     blocks, tau, k, ants.size(), ids.size(), ok, false_claim, missed, unknown);
+        std::printf("          fractional-surrogate value of this solution = %.1f\n", lp_value);
         if (out_fixed) {
             std::fprintf(out_fixed, "%g,%d\n", tau, k);
             for (size_t i = 0; i < ants.size(); ++i)
@@ -470,6 +500,38 @@ static int cmd_verify(const Args& A) {
     if (blocks != 9) { std::printf("expected 9 blocks, found %d\n", blocks); ++problems; }
     std::printf("\n%s\n", problems ? "SUBMISSION HAS PROBLEMS" : "SUBMISSION OK");
     return problems ? 1 : 0;
+}
+
+
+// Dump the contribution map so an external LP relaxation can be built.
+//
+// The relaxation gives what nothing else here can: an *upper bound* on the true
+// optimum, and therefore a real optimality gap rather than a comparison against
+// our own earlier baselines.
+static int cmd_dump(const Args& A) {
+    Scene sc;
+    sc.load_geojson(A.data);
+    sc.build_index(A.cell);
+    Visibility vis(sc);
+    auto cands = generate_candidates(sc, A.edge_spacing);
+    ContribOpts co;
+    co.radius = A.radius;
+    co.min_frac = A.min_frac;
+    Contribs C = build_contributions(sc, vis, cands, co);
+
+    FILE* f = std::fopen(A.out.c_str(), "w");
+    if (!f) { std::fprintf(stderr, "cannot write %s\n", A.out.c_str()); return 2; }
+    std::fprintf(f, "BUILDINGS %zu\n", sc.buildings.size());
+    for (const auto& b : sc.buildings) std::fprintf(f, "%s %.17g\n", b.id.c_str(), b.perimeter);
+    std::fprintf(f, "CANDS %zu\n", cands.size());
+    std::fprintf(f, "ARCS %zu\n", C.entries());
+    for (size_t c = 0; c + 1 < C.start.size(); ++c)
+        for (int64_t j = C.start[c]; j < C.start[c + 1]; ++j)
+            std::fprintf(f, "%zu %d %.17g %.17g\n", c, C.bld[j], C.s0[j], C.s1[j]);
+    std::fclose(f);
+    std::fprintf(stderr, "[dump] %zu buildings, %zu candidates, %zu arcs -> %s\n",
+                 sc.buildings.size(), cands.size(), C.entries(), A.out.c_str());
+    return 0;
 }
 
 int main(int argc, char** argv) {
@@ -502,6 +564,7 @@ int main(int argc, char** argv) {
     try {
         if (A.cmd == "bench") return cmd_bench(A);
         if (A.cmd == "verify") return cmd_verify(A);
+        if (A.cmd == "dump") return cmd_dump(A);
         if (A.cmd == "crosscheck") return cmd_crosscheck(A);
         return cmd_solve(A);
     } catch (const std::exception& e) {

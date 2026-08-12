@@ -206,7 +206,80 @@ This is a cheap, general test — it costs three extra runs — and it says
 "keep optimising" without needing to know the optimum. It is what motivated the
 next section.
 
-### 4.2 Target-set refinement ("focus")
+### 4.2 Pricing the remaining work in antennas, not metres
+
+The potential above measures progress in **metres of perimeter**. The budget is
+denominated in **antennas**. Those are different currencies, and conflating them
+is the same misallocation §4.1 diagnosed, seen from the other side: a building at
+90% coverage that still needs two antennas is worth far less than one at 90% that
+needs one, and `u^p` cannot tell them apart.
+
+So price the remaining work in the currency of the constraint. For building `b`
+let `reach_b` be the largest slice of its boundary any single antenna delivers —
+the exchange rate between metres and antennas. Then
+
+```
+units_b = (tau*P_b - covered_b) / reach_b      antenna-units still outstanding
+phi_b   = 1 / (1 + units_b)^q
+```
+
+An antenna that drags a building from three-still-needed to two now earns
+something; one that polishes a building nobody will ever finish earns almost
+nothing. This is cost-benefit greedy in the sense of Khuller–Moss–Naor: value
+per unit of the actually-binding resource.
+
+Measured against metre-pricing, before any polish:
+
+| τ | k | metre-priced | antenna-priced |
+|---|---|---|---|
+| 0.75 | 500 | 2,254 | **2,324** |
+| 0.75 | 50 | 249 | **257** |
+| 0.75 | 1000 | 4,591 | **4,638** |
+| 0.50 | 500 | 5,409 | **5,444** |
+| 0.50 | 50 | **664** | 572 |
+
+Neither dominates — antenna-pricing wins by 3% at (0.75, 500) and loses by 14%
+at (0.5, 50) — so both are swept together with the exponent and the choice is
+made **per sub-problem by measurement**. That is not a cop-out: scoring is
+relative per sub-problem, so the only thing that matters is being best on each
+one independently, and the sweep is cheap because the contribution map is shared.
+Widening the config space this way also found configurations neither pricing
+reached alone (4,677 at (0.75, 1000) versus 4,638 and 4,591).
+
+### 4.2b What an LP relaxation does and does not tell us
+
+Every comparison above is against our own earlier baselines, which says how much
+the later work added but nothing about how much is left. The standard way to get
+a real bound is a linear relaxation. Cut each boundary at every arc endpoint into
+*atoms*, so coverage becomes linear:
+
+```
+max  sum_b z_b
+s.t. x_a <= sum_{c covers a} y_c                     for each atom a
+     sum_{a in b} len(a)*x_a >= tau*P_b*z_b
+     sum_c y_c <= k ,   0 <= x,y,z <= 1
+```
+
+Solved with HiGHS on a 240-building crop (41k variables, 40k constraints) at
+τ=0.75, k=20: **LP bound 204.3**, our solution **92**.
+
+That looks alarming until you notice what the LP is actually maximising. Nothing
+stops it setting `z_b = covered_b / (tau*P_b)`, so its objective is really
+`sum_b min(1, cov_b/(tau*P_b))` — the *fractional* form of the surrogate. It
+cannot tell "148 buildings at 70%" from "104 buildings finished". Evaluating our
+own integral solution in that same currency gives **176.3** against the LP's
+204.3: we are already at **86% of the LP optimum in the LP's own objective**.
+
+So the 92-vs-204 gap is overwhelmingly the threshold/integrality gap of the
+relaxation, not evidence that the solution is at 45% of optimal. **This LP is a
+weak bound for this problem and should not be quoted as an optimality gap.**
+
+The principled fix is known: **knapsack-cover inequalities** (Carr, Fleischer,
+Leung, Phillips 2000), which exist precisely to repair covering LPs whose natural
+relaxation is destroyed by threshold constraints. That is the next thing to try
+if a real optimality gap is wanted — see §10.
+
+### 4.3 Target-set refinement ("focus")
 
 Stop pretending every building is reachable. Run once to learn which buildings
 the budget can plausibly finish, restrict the objective to that set plus a
@@ -233,7 +306,7 @@ Exactly the shape the diagnosis predicts: the gain is concentrated where
 completion-coupling binds, and vanishes at τ=0.25 where 98.5% of buildings finish
 with a single antenna and there is nothing to misallocate.
 
-### 4.3 The polish needs both neighbourhoods, not a choice between them
+### 4.4 The polish needs both neighbourhoods, not a choice between them
 
 Focus exposed a silent bug and then a subtler trade-off, in that order.
 
@@ -395,24 +468,31 @@ Service score (higher is better). `selfcover` = own-vertices-only baseline;
 naturally produces, and what the first draft of this plan described; `final` =
 tuned potential + target-set refinement + dual-neighbourhood polish.
 
-| τ | k | selfcover | bundle | truncated | **final** | final/truncated |
-|---|---|---|---|---|---|---|
-| 0.25 | 50 | 522 | 619 | 2,104 | **2,330** | 1.11 |
-| 0.25 | 500 | 3,464 | 4,725 | 9,705 | **10,472** | 1.08 |
-| 0.25 | 1000 | 5,906 | 8,444 | 12,525 | **12,788** | 1.02 |
-| 0.50 | 50 | 194 | 215 | 469 | **716** | 1.53 |
-| 0.50 | 500 | 2,166 | 2,434 | 4,731 | **5,671** | 1.20 |
-| 0.50 | 1000 | 4,258 | 5,117 | 8,971 | **9,746** | 1.09 |
-| 0.75 | 50 | 49 | 104 | 70 | **285** | 4.07 |
-| 0.75 | 500 | 698 | 1,070 | 1,262 | **2,437** | 1.93 |
-| 0.75 | 1000 | 1,395 | 2,381 | 3,398 | **5,023** | 1.48 |
+| τ | k | selfcover | bundle | truncated | **final** | final/truncated | pricing |
+|---|---|---|---|---|---|---|---|
+| 0.25 | 50 | 522 | 619 | 2,104 | **2,330** | 1.11 | metre |
+| 0.25 | 500 | 3,464 | 4,725 | 9,705 | **10,466** | 1.08 | metre |
+| 0.25 | 1000 | 5,906 | 8,444 | 12,525 | **12,788** | 1.02 | metre |
+| 0.50 | 50 | 194 | 215 | 469 | **725** | 1.55 | antenna |
+| 0.50 | 500 | 2,166 | 2,434 | 4,731 | **5,756** | 1.22 | antenna |
+| 0.50 | 1000 | 4,258 | 5,117 | 8,971 | **9,874** | 1.10 | antenna |
+| 0.75 | 50 | 49 | 104 | 70 | **298** | 4.26 | antenna |
+| 0.75 | 500 | 698 | 1,070 | 1,262 | **2,586** | 2.05 | antenna |
+| 0.75 | 1000 | 1,395 | 2,381 | 3,398 | **5,037** | 1.48 | antenna |
+
+The pricing column is itself a finding: metre-pricing is chosen at every τ=0.25
+sub-problem and antenna-pricing at every τ=0.5 and τ=0.75 one. At τ=0.25 almost
+every building finishes with one antenna, so there is no antenna-scarcity to
+reason about and the simpler potential wins; as τ rises and buildings start
+needing two or three, the currency of the constraint starts to matter.
 
 A caveat on how to read that last column, because it is easy to oversell: it
 compares this system against *our own* earlier baseline, not against another
 team. Under the competition's relative scoring a `truncated` submission would
-earn **6.66 / 9** against ours — but that is a statement about how much the
-later work added, not evidence that 5,023 is near-optimal at (0.75, 1000).
-There is no external reference point, which is why §4.1 exists.
+earn **6.58 / 9** against ours — but that is a statement about how much the
+later work added, not evidence that 5,037 is near-optimal at (0.75, 1000).
+There is no external reference point — and §4.2b shows the obvious way to get
+one, an LP relaxation, does not work for this objective. §4.1 is the substitute.
 
 What the table does say clearly is *where* the work matters. τ=0.25 is nearly
 saturated (12,788 of 12,860 at k=1000, 99.4%) and will likely be a near-tie
@@ -424,9 +504,9 @@ where method choice swings the score by 1.5–4×. Budget run-day compute there.
 
 | τ \ k | 50 | 500 | 1000 |
 |---|---|---|---|
-| 0.25 | 8.0 | 6.0 | 8.0 |
-| 0.50 | 8.0 | 3.0 | 3.0 |
-| 0.75 | 3.0 | 2.0 | 2.0 |
+| 0.25 | 8.0 metre | 6.0 metre | 8.0 metre |
+| 0.50 | 8.0 ant | 3.0 ant | 3.0 ant |
+| 0.75 | 3.0 ant | 2.0 ant | 1.0 ant |
 
 Monotone structure: higher τ wants *less* convexity. The sweep is cheap, so it
 runs per sub-problem rather than trusting this table — but the table is a decent
@@ -435,9 +515,9 @@ prior if time is short.
 ### Polish
 
 Large-neighbourhood search frees antennas that provably hold no building above
-threshold, then re-spends the budget under both neighbourhoods of §4.3. Gains at
-a 150 s budget are consistent and largest where it matters: **+278** at
-(0.25,500), **+391** at (0.5,1000), **+432** at (0.75,1000). It keeps the best
+threshold, then re-spends the budget under both neighbourhoods of §4.4. Gains at
+a 150 s budget are consistent and largest where it matters: **+272** at
+(0.25,500), **+416** at (0.5,1000), **+360** at (0.75,1000). It keeps the best
 solution seen, so it is safe to stop at any moment.
 
 ### Submission integrity
@@ -558,18 +638,27 @@ worth doing before 15 Aug.
    directly addresses the measured weakness above: the two polish
    neighbourhoods currently split one budget, and with real parallelism both
    could have the whole clock.
-2. **Re-run the marginal-returns test (§4.1) on the final configuration.** It is
+2. **Knapsack-cover inequalities for a usable upper bound.** §4.2b showed the
+   natural LP relaxation is nearly worthless as a quality measure -- our solution
+   already attains 86% of it in the LP's own currency, because the LP cannot
+   reward finishing a building. Knapsack-cover inequalities (Carr–Fleischer–
+   Leung–Phillips) are the standard repair for covering LPs with exactly this
+   defect. Without them there is no honest optimality gap for this problem, only
+   comparisons against our own baselines. An alternative that sidesteps the LP
+   entirely: solve a *tiny* instance (≈40 buildings, k=3) exhaustively and
+   measure the true gap there.
+3. **Re-run the marginal-returns test (§4.1) on the final configuration.** It is
    the only optimality signal available without a competitor baseline. If the
    buildings-per-antenna curve is still rising at the operating `k`, budget is
    still being misallocated and there is more to take. If it has flattened, the
    remaining gap is candidate quality, not search — which points at item 4
    instead.
-3. **A completion-aware polish move.** LNS currently frees redundant antennas and
+4. **A completion-aware polish move.** LNS currently frees redundant antennas and
    re-greedies. A targeted move — for each building just below τ, find the single
    cheapest candidate that would finish it, and swap it against a provably
    redundant antenna — attacks precisely the (0.75, small k) regime where the
    spread between methods is widest.
-4. ~~**Edge-interior candidate sites.**~~ **Tested, and the answer is no.**
+5. ~~**Edge-interior candidate sites.**~~ **Tested, and the answer is no.**
    Adding candidates every 15 m and every 8 m along edges:
 
    | spacing | candidates | τ=0.75, k=1000 | τ=0.5, k=500 | precompute |
@@ -588,11 +677,11 @@ worth doing before 15 Aug.
    of "critical constraints" (lines through pairs of nearby vertices, intersected
    with the host edge) rather than to a uniform grid — remains untested, but the
    negative result above makes it a low-probability bet.
-5. **Exact per-building completion by ILP.** For the buildings that matter,
+6. **Exact per-building completion by ILP.** For the buildings that matter,
    completion is a tiny set-cover instance; greedy set cover is used now. An
    exact solve would tighten the bundle machinery — but that machinery is the one
    that lost, so this is speculative.
-6. **Exactly-collinear grazing walls.** The sweep drops non-incident edges that
+7. **Exactly-collinear grazing walls.** The sweep drops non-incident edges that
    are exactly edge-on, since they subtend zero angle. Measured absent from the
    sample dataset, and a counter is wired in so a different dataset would surface
    it rather than silently losing length. If the counter fires on 15 Aug, those
