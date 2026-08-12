@@ -1,0 +1,7 @@
+ok
+ok main
+BUILD_OK
+tau    k       baseline +2-exchange
+0.75   50           298        376
+0.5    50           725        848
+0.75   500         2571       2847

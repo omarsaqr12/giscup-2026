@@ -71,6 +71,7 @@ public:
         // delivers. It is the exchange rate between metres and antennas, and it
         // is what lets the potential below price a building's remaining work in
         // the same currency as the budget.
+        holders_.assign(nb, {});
         reach_.assign(nb, 0.0);
         for (size_t c = 0; c + 1 < C.start.size(); ++c) {
             int64_t a = C.start[c], z = C.start[c + 1];
@@ -86,6 +87,7 @@ public:
     }
 
     void reset() {
+        for (auto& h : holders_) h.clear();
         for (auto& a : cov_) a.clear();
         std::fill(serviced_.begin(), serviced_.end(), 0);
         std::fill(chosen_.begin(), chosen_.end(), 0);
@@ -95,6 +97,10 @@ public:
 
     int score() const { return score_; }
     void set_random(double eps, unsigned seed) { rcl_eps_ = eps; rng_seed_ = seed; }
+    void set_two_exchange(bool on, int shortlist) {
+        two_exchange_on_ = on;
+        two_exchange_shortlist_ = shortlist;
+    }
     const std::vector<int32_t>& picked() const { return picked_; }
 
     // Per-building potential. u is progress toward the threshold, in [0,1].
@@ -183,6 +189,7 @@ public:
             int32_t b = C_.bld[j];
             int64_t e = j;
             while (e < z && C_.bld[e] == b) { cov_[b].add(C_.s0[e], C_.s1[e]); ++e; }
+            holders_[b].push_back(c);
             if (touched) touched->push_back(b);
             if (!serviced_[b] && cov_[b].measure >= target_[b]) {
                 serviced_[b] = 1;
@@ -204,6 +211,8 @@ private:
     void run_bundle(int k, bool verbose);
     void run_selfcover(int k, bool verbose);
     void run_focus(int k, bool verbose);
+    bool two_exchange_pass(int shortlist);
+    void withdraw(int32_t c);
     int lns(int k, double time_budget_sec, unsigned seed, bool verbose,
             const std::vector<char>& mask);
 
@@ -226,10 +235,13 @@ private:
     std::vector<char> active_;  // buildings the objective is allowed to care about
     std::vector<double> target_;
     std::vector<double> reach_;
+    bool two_exchange_on_ = false;
+    int two_exchange_shortlist_ = 400;
     double rcl_eps_ = 0.0;   // randomised greedy: accept any gain within (1-eps) of best
     unsigned rng_seed_ = 0;
     bool cost_mode_ = false;  // price remaining work in antennas rather than metres
     std::vector<int32_t> picked_;
+    std::vector<std::vector<int32_t>> holders_;  // chosen antennas touching each building
     int score_ = 0;
 };
 
@@ -546,13 +558,96 @@ inline void Solver::run_focus(int k, bool verbose) {
     rebuild();
 }
 
+
+// Withdraw a chosen antenna, rebuilding coverage of the buildings it touched
+// from whatever other chosen antennas still reach them.
+inline void Solver::withdraw(int32_t c) {
+    if (!chosen_[c]) return;
+    chosen_[c] = 0;
+    picked_.erase(std::find(picked_.begin(), picked_.end(), c));
+    int64_t a = C_.start[c], z = C_.start[c + 1];
+    for (int64_t j = a; j < z;) {
+        int32_t b = C_.bld[j];
+        int64_t e = j;
+        while (e < z && C_.bld[e] == b) ++e;
+        auto& h = holders_[b];
+        h.erase(std::find(h.begin(), h.end(), c));
+        cov_[b].clear();
+        for (int32_t o : h) {
+            int64_t oa = C_.start[o], oz = C_.start[o + 1];
+            for (int64_t q = oa; q < oz; ++q)
+                if (C_.bld[q] == b) cov_[b].add(C_.s0[q], C_.s1[q]);
+        }
+        if (serviced_[b] && cov_[b].measure < target_[b]) { serviced_[b] = 0; --score_; }
+        j = e;
+    }
+}
+
+// One first-improvement 2-exchange pass: withdraw a chosen antenna, put a
+// different one in its place, keep the swap if the true score rises.
+//
+// This exists because exhaustive search on tiny instances showed the solver
+// losing 20% on a *two-antenna* problem -- it commits to the best single next
+// antenna and cannot see the pair that beats it. Destroy-repair does not fix
+// that: it only ever frees antennas that are provably holding nothing up, so an
+// antenna that is genuinely needed but nonetheless the wrong choice is never
+// reconsidered. This move reconsiders exactly those.
+//
+// Additions are restricted to a shortlist of the currently highest-gain
+// candidates, which keeps a pass at O(k * shortlist) rather than O(k * |C|).
+inline bool Solver::two_exchange_pass(int shortlist) {
+    // Shortlist: best current marginal gain among unchosen candidates.
+    std::vector<std::pair<double, int32_t>> top;
+    top.reserve(cands_.size() / 8 + 1);
+    for (size_t c = 0; c < cands_.size(); ++c) {
+        if (chosen_[c]) continue;
+        if (C_.start[c] == C_.start[c + 1]) continue;
+        double g = gain((int32_t)c);
+        if (g > 0) top.emplace_back(g, (int32_t)c);
+    }
+    if ((int)top.size() > shortlist) {
+        std::nth_element(top.begin(), top.begin() + shortlist, top.end(),
+                         [](const std::pair<double, int32_t>& x,
+                            const std::pair<double, int32_t>& y) { return x.first > y.first; });
+        top.resize(shortlist);
+    }
+    if (top.empty()) return false;
+
+    std::vector<int32_t> order = picked_;
+    for (int32_t out : order) {
+        if (!chosen_[out]) continue;
+        int before = score_;
+        withdraw(out);
+        int best_gain = 0;
+        int32_t best_in = -1;
+        for (const auto& t : top) {
+            if (chosen_[t.second]) continue;
+            int g = completions(t.second);
+            if (g > best_gain) { best_gain = g; best_in = t.second; }
+        }
+        if (best_in >= 0 && score_ + best_gain > before) {
+            apply(best_in);
+            return true;                 // first improvement; caller re-runs
+        }
+        apply(out);                      // no improvement, put it back
+    }
+    return false;
+}
+
 inline void Solver::rebuild() {
     for (auto& a : cov_) a.clear();
     std::fill(serviced_.begin(), serviced_.end(), 0);
     score_ = 0;
+    for (auto& h : holders_) h.clear();
     for (int32_t c : picked_) {
         int64_t a = C_.start[c], z = C_.start[c + 1];
-        for (int64_t j = a; j < z; ++j) cov_[C_.bld[j]].add(C_.s0[j], C_.s1[j]);
+        for (int64_t j = a; j < z;) {
+            int32_t b = C_.bld[j];
+            int64_t e = j;
+            while (e < z && C_.bld[e] == b) { cov_[b].add(C_.s0[e], C_.s1[e]); ++e; }
+            holders_[b].push_back(c);
+            j = e;
+        }
     }
     for (size_t b = 0; b < sc_.buildings.size(); ++b)
         if (cov_[b].measure >= target_[b]) { serviced_[b] = 1; ++score_; }
@@ -560,6 +655,8 @@ inline void Solver::rebuild() {
 
 inline int Solver::lns(int k, double time_budget_sec, unsigned seed, bool verbose,
                        const std::vector<char>& mask) {
+    const bool two_exch = two_exchange_on_;
+    const int shortlist = two_exchange_shortlist_;
     // Large-neighbourhood search: free antennas that provably are not holding
     // any building above threshold, then re-spend the budget with the greedy.
     // Keeps the best solution seen, so it is safe to stop at any time.
@@ -616,6 +713,12 @@ inline int Solver::lns(int k, double time_budget_sec, unsigned seed, bool verbos
         rebuild();
         run_greedy(k, false);
 
+        // Interleave 2-exchange: destroy-repair only ever frees antennas that
+        // hold nothing up, so a needed-but-wrong antenna is never reconsidered.
+        if (two_exch) {
+            int guard = 0;
+            while (elapsed() < time_budget_sec && two_exchange_pass(shortlist) && ++guard < 200) {}
+        }
         if (score_ > best_score) {
             best_score = score_;
             best = picked_;

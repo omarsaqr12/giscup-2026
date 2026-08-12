@@ -30,13 +30,21 @@ Runs two independent checks:
 2. **`giscup crosscheck`** — compares the rotational-sweep visibility engine
    against an independent brute-force sampler on random neighbourhoods of the
    real dataset.
+3. **`bash tests/robustness.sh`** — mutates the sample into 14 shapes the real
+   dataset might arrive in (id under other property names or absent,
+   MultiPolygon, reversed rings, unclosed rings, XYZ coordinates, no CRS,
+   shifted origin, duplicate vertices, k exceeding the candidate count) and
+   checks each still solves and verifies identically.
+4. **`giscup exact`** — exhaustive optimum for k≤3, for measuring the true
+   optimality gap on tiny instances.
 
 ## Run
 
 ```bash
 ./giscup solve --data data/GIS-cup-sample-dataset.geojson \
                --tau 0.25,0.5,0.75 --k 50,500,1000 \
-               --radius 600 --lns-sec 30 --out submission.txt
+               --radius 600 --lns-sec 150 --swap 400 \
+               --verify-radius 2500 --out submission.txt
 ```
 
 Writes the 9-block submission file. Useful flags:
@@ -47,11 +55,16 @@ Writes the 9-block submission file. Useful flags:
 | `--powers a,b,c` | convexity exponents to auto-tune over, per sub-problem |
 | `--no-auto` | disable auto-tuning; use a single `--power` |
 | `--lns-sec S` | seconds of large-neighbourhood polish per sub-problem |
+| `--swap N` | 2-exchange local search with an N-candidate shortlist (400 works well) |
+| `--verify-radius R` | cap the verification sweep; 2500 is exact here and 2x faster |
+| `--restarts N` | GRASP restarts (helps only on tiny instances; default off) |
 | `--edge-spacing D` | also place candidate sites every D metres along edges |
 | `--algo NAME` | `selfcover`, `bundle`, `truncated`, `potential`, `potential+lns` |
 
 Other subcommands: `bench` (compare algorithms across all nine sub-problems),
-`crosscheck` (brute-force validation).
+`crosscheck` (brute-force validation), `verify` (re-score a finished submission;
+`--rewrite` repairs its claim lines), `exact` (exhaustive optimum, k<=3),
+`dump` (contribution map, for `tools/lp_bound.py`).
 
 ## Layout
 

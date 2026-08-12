@@ -439,6 +439,46 @@ the one the tuning round had selected. That made (0.75, 50) score 277 against
 298 without GRASP — an apparent 7% regression from an addition that is supposed
 to be a pure max. Restarts now contribute a candidate solution only.
 
+### 4.7 2-exchange local search
+
+The exhaustive test of §4.3 diagnosed a *mechanism*: pair-blindness. The solver
+commits to the best single next antenna and cannot see the pair that beats it,
+losing 20% on a two-antenna instance. GRASP attacked that by sampling and did
+not transfer to real sizes (§4.6). This attacks it directly.
+
+One pass withdraws each chosen antenna in turn, tries every member of a
+shortlist of currently-highest-gain candidates in its place, and keeps the swap
+if the true service score rises. The move destroy-repair structurally cannot
+make: that polish only frees antennas that are *provably holding nothing up*, so
+an antenna that is genuinely needed yet nonetheless the wrong choice is never
+reconsidered. This reconsiders exactly those.
+
+Restricting additions to a shortlist keeps a pass at `O(k * shortlist)` rather
+than `O(k * |C|)`, so unlike restarts the cost scales with the budget rather
+than with the size of the search space — which is why it survives the jump to
+real instances where GRASP did not.
+
+Against the known optima:
+
+| buildings | τ | k | before | **+ 2-exchange** | optimum |
+|---|---|---|---|---|---|
+| 40 | 0.50 | 3 | 17 | **20** | 20 |
+| 40 | 0.75 | 3 | 6 | **8** | 8 |
+| 70 | 0.50 | 2 | 12 | **15** | 15 |
+| 70 | 0.50 | 3 | 17 | **22** | 22 |
+
+**Mean ratio to optimum 0.79 → 1.00**: every tiny instance solved exactly, where
+GRASP reached 0.93. And unlike GRASP it transfers to the full dataset, on
+exactly the sub-problems that decide the competition:
+
+| τ | k | before | **+ 2-exchange** | |
+|---|---|---|---|---|
+| 0.75 | 50 | 298 | **376** | +26% |
+| 0.50 | 50 | 725 | **848** | +17% |
+| 0.75 | 500 | 2,571 | **2,847** | +11% |
+
+Enabled with `--swap N` (shortlist size; 400 works well).
+
 ## 5. Architecture as built
 
 ```
@@ -551,15 +591,15 @@ tuned potential + target-set refinement + dual-neighbourhood polish.
 
 | τ | k | selfcover | bundle | truncated | **final** | final/truncated | pricing |
 |---|---|---|---|---|---|---|---|
-| 0.25 | 50 | 522 | 619 | 2,104 | **2,330** | 1.11 | metre |
-| 0.25 | 500 | 3,464 | 4,725 | 9,705 | **10,466** | 1.08 | metre |
-| 0.25 | 1000 | 5,906 | 8,444 | 12,525 | **12,788** | 1.02 | metre |
-| 0.50 | 50 | 194 | 215 | 469 | **725** | 1.55 | antenna |
-| 0.50 | 500 | 2,166 | 2,434 | 4,731 | **5,756** | 1.22 | antenna |
-| 0.50 | 1000 | 4,258 | 5,117 | 8,971 | **9,874** | 1.10 | antenna |
-| 0.75 | 50 | 49 | 104 | 70 | **298** | 4.26 | antenna |
-| 0.75 | 500 | 698 | 1,070 | 1,262 | **2,586** | 2.05 | antenna |
-| 0.75 | 1000 | 1,395 | 2,381 | 3,398 | **5,037** | 1.48 | antenna |
+| 0.25 | 50 | 522 | 619 | 2,104 | **2,373** | 1.13 | metre |
+| 0.25 | 500 | 3,464 | 4,725 | 9,705 | **10,462** | 1.08 | metre |
+| 0.25 | 1000 | 5,906 | 8,444 | 12,525 | **12,802** | 1.02 | metre |
+| 0.50 | 50 | 194 | 215 | 469 | **848** | 1.81 | antenna |
+| 0.50 | 500 | 2,166 | 2,434 | 4,731 | **6,080** | 1.29 | antenna |
+| 0.50 | 1000 | 4,258 | 5,117 | 8,971 | **10,117** | 1.13 | antenna |
+| 0.75 | 50 | 49 | 104 | 70 | **377** | 5.39 | antenna |
+| 0.75 | 500 | 698 | 1,070 | 1,262 | **2,863** | 2.27 | antenna |
+| 0.75 | 1000 | 1,395 | 2,381 | 3,398 | **5,391** | 1.59 | antenna |
 
 The pricing column is itself a finding: metre-pricing is chosen at every τ=0.25
 sub-problem and antenna-pricing at every τ=0.5 and τ=0.75 one. At τ=0.25 almost
@@ -570,8 +610,8 @@ needing two or three, the currency of the constraint starts to matter.
 A caveat on how to read that last column, because it is easy to oversell: it
 compares this system against *our own* earlier baseline, not against another
 team. Under the competition's relative scoring a `truncated` submission would
-earn **6.58 / 9** against ours — but that is a statement about how much the
-later work added, not evidence that 5,037 is near-optimal at (0.75, 1000).
+earn **6.27 / 9** against ours — but that is a statement about how much the
+later work added, not evidence that 5,391 is near-optimal at (0.75, 1000).
 There is no external reference point — and §4.3 shows the obvious way to get
 one, an LP relaxation, does not work for this objective. §4.1 is the substitute.
 
@@ -597,8 +637,9 @@ prior if time is short.
 
 Large-neighbourhood search frees antennas that provably hold no building above
 threshold, then re-spends the budget under both neighbourhoods of §4.5. Gains at
-a 150 s budget are consistent and largest where it matters: **+272** at
-(0.25,500), **+416** at (0.5,1000), **+360** at (0.75,1000). It keeps the best
+a 150 s budget are consistent and largest where it matters: **+631** at
+(0.5,500), **+660** at (0.5,1000), **+714** at (0.75,1000) -- roughly double what
+it delivered before 2-exchange was folded into the repair. It keeps the best
 solution seen, so it is safe to stop at any moment.
 
 ### Submission integrity
@@ -711,16 +752,18 @@ The whole point of the preceding work is that 15 Aug should be boring.
 Ranked by expected value against remaining effort. The first two are the ones
 worth doing before 15 Aug.
 
-1. **An explicit 2-exchange local search.** The exhaustive test (§4.3) showed
-   the solver losing 20% on a *two-antenna* instance: textbook pair-blindness.
-   GRASP fixed that at k≤3 but did nothing at k=50 (§4.6), so the remedy has to
-   attack the mechanism directly rather than by sampling — remove any one
-   antenna, try every replacement, iterate to a local optimum. Unlike restarts,
-   its cost and benefit both scale with `k` rather than with the size of the
-   search space.
-2. **Extend exhaustive verification to k=4–5** via branch and bound rather than
-   enumeration, to check the gap does not widen with `k`. The current evidence
-   stops at k=3, which is the weakest part of the argument in §4.3.
+1. **3-exchange, or a smarter shortlist.** 2-exchange (§4.7) now solves every
+   verifiable instance exactly, so the tiny-instance oracle can no longer see
+   any gap — it has run out of resolution. Extending exhaustive verification to
+   k=4–5 by branch and bound would restore it; without that there is no longer a
+   measurement that says whether more search pays.
+2. **Run-day input robustness is covered** (`tests/robustness.sh`): 14 mutations
+   of the sample -- id under five different property names or absent entirely,
+   MultiPolygon, counter-clockwise rings, unclosed rings, XYZ coordinates, no
+   CRS, shifted origin, duplicated vertices, k exceeding the candidate count --
+   all produce identical scores and clean verification. Worth re-running the
+   moment the real dataset lands, against *it* rather than against mutations of
+   the sample.
 3. **Re-run the marginal-returns test (§4.1) on the final configuration.** It is
    the only optimality signal available without a competitor baseline. If the
    buildings-per-antenna curve is still rising at the operating `k`, budget is
