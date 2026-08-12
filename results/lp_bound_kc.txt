@@ -1,0 +1,8 @@
+LP: 41,194 vars (1,619 antennas, 39,335 atoms, 240 buildings), 39,576 constraints
+tau=0.75 k=20   LP upper bound on optimum = 204.3   (of 240 buildings)
+  + 240 knapsack-cover cuts (depth 1)
+LP: 41,194 vars (1,619 antennas, 39,335 atoms, 240 buildings), 39,816 constraints
+tau=0.75 k=20   LP upper bound on optimum = 204.3   (of 240 buildings)
+  + 675 knapsack-cover cuts (depth 3)
+LP: 41,194 vars (1,619 antennas, 39,335 atoms, 240 buildings), 40,251 constraints
+tau=0.75 k=20   LP upper bound on optimum = 204.3   (of 240 buildings)

@@ -60,7 +60,9 @@ struct Args {
     int subset = 0;
     bool verbose = true;
     bool autotune = true;
-    int finalists = 2;  // exponents promoted from the cheap sweep to the focused run
+    int finalists = 2;
+    int restarts = 0;      // GRASP restarts, run concurrently
+    double rcl_eps = 0.15;  // exponents promoted from the cheap sweep to the focused run
     std::vector<double> powers{1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0, 8.0};
 };
 
@@ -231,6 +233,36 @@ static int cmd_solve(const Args& A) {
                 Solver S(sc, cands, C, I, tau, cfg.pw, A.normalise, cfg.cost);
                 S.run(base_algo(A.algo), k, 0.0, A.seed, false);
                 harvest(S, cfg);
+            }
+            // GRASP restarts. Selection is otherwise single-threaded while all
+            // cores idle, so these are close to free wall-clock.
+            if (A.restarts > 0 && !ranked.empty()) {
+                Cfg cfg = ranked[0].second;
+                std::vector<std::vector<int32_t>> picks(A.restarts);
+                std::vector<int> scores(A.restarts, -1);
+#pragma omp parallel for schedule(dynamic, 1)
+                for (int r = 0; r < A.restarts; ++r) {
+                    Solver S(sc, cands, C, I, tau, cfg.pw, A.normalise, cfg.cost);
+                    S.set_random(A.rcl_eps, A.seed + 7919u * (unsigned)(r + 1));
+                    S.run(base_algo(A.algo), k, 0.0, A.seed + (unsigned)r, false);
+                    picks[r] = S.picked();
+                    scores[r] = S.score();
+                }
+                int bi = 0;
+                for (int r = 1; r < A.restarts; ++r) if (scores[r] > scores[bi]) bi = r;
+                std::vector<Vec2> ants;
+                for (int32_t c : picks[bi]) ants.push_back(cands[c].p);
+                for (size_t i = ants.size(); i < (size_t)k; ++i)
+                    ants.push_back(cands[(A.seed * 2654435761u + (unsigned)i) % cands.size()].p);
+                Verdict v = verify(sc, vis, ants, tau, 0.0, A.verify_radius);
+                // Contribute a solution only. Letting this also overwrite
+                // best_cfg would hand the polish stage a different
+                // configuration from the one the finalists round chose, which
+                // measured *worse* at (0.75, 50): 298 -> 277.
+                if (v.score > best_score) {
+                    best_score = v.score; best_search = scores[bi];
+                    best_ants = ants; best_claim = v.claimed;
+                }
             }
             std::printf("%-6g %-6d %-5.1f %-6s %9d %9d %7.1f %s\n", tau, k, best_cfg.pw,
                         best_cfg.cost ? "ant" : "metre", best_score, best_search, now_s() - ts,
@@ -534,6 +566,93 @@ static int cmd_dump(const Args& A) {
     return 0;
 }
 
+
+// Exhaustive optimum for a tiny instance.
+//
+// The LP relaxation (tools/lp_bound.py) turned out to be useless as a quality
+// measure, knapsack-cover cuts included. This is the brute-force alternative:
+// on an instance small enough to enumerate, compute the true optimum and
+// measure the heuristic's real gap. Slow by construction, and only viable for
+// k <= 3 or so, but it is the one number here that is not a comparison against
+// ourselves.
+static int cmd_exact(const Args& A) {
+    Scene sc;
+    sc.load_geojson(A.data);
+    sc.build_index(A.cell);
+    Visibility vis(sc);
+    auto cands = generate_candidates(sc, A.edge_spacing);
+    ContribOpts co;
+    co.radius = A.radius;
+    co.min_frac = 0.0;
+    co.verbose = false;
+    Contribs C = build_contributions(sc, vis, cands, co);
+
+    size_t nc = cands.size(), nb = sc.buildings.size();
+    int k = (int)A.ks[0];
+    double tau = A.taus[0];
+    std::vector<double> target(nb);
+    for (size_t b = 0; b < nb; ++b) target[b] = tau * sc.buildings[b].perimeter;
+
+    std::fprintf(stderr, "[exact] %zu buildings, %zu candidates, k=%d, tau=%g\n", nb, nc, k, tau);
+    if (k > 3) { std::fprintf(stderr, "[exact] k>3 is not enumerable here\n"); return 2; }
+
+    int best = -1;
+    std::vector<int32_t> best_set;
+
+    auto score_of = [&](const int32_t* pick, int n) {
+        static thread_local std::vector<ArcSet> arcs;
+        static thread_local std::vector<int32_t> touched;
+        if (arcs.size() != nb) arcs.assign(nb, ArcSet());
+        touched.clear();
+        for (int i = 0; i < n; ++i) {
+            int64_t a = C.start[pick[i]], z = C.start[pick[i] + 1];
+            for (int64_t j = a; j < z; ++j) {
+                if (arcs[C.bld[j]].iv.empty()) touched.push_back(C.bld[j]);
+                arcs[C.bld[j]].add(C.s0[j], C.s1[j]);
+            }
+        }
+        int sc2 = 0;
+        for (int32_t b : touched) {
+            if (arcs[b].measure >= target[b]) ++sc2;
+            arcs[b].clear();
+        }
+        return sc2;
+    };
+
+#pragma omp parallel
+    {
+        int lbest = -1;
+        std::vector<int32_t> lset;
+        int32_t pick[3];
+#pragma omp for schedule(dynamic, 1)
+        for (long long i = 0; i < (long long)nc; ++i) {
+            pick[0] = (int32_t)i;
+            if (k == 1) {
+                int v = score_of(pick, 1);
+                if (v > lbest) { lbest = v; lset.assign(pick, pick + 1); }
+                continue;
+            }
+            for (size_t j = i + 1; j < nc; ++j) {
+                pick[1] = (int32_t)j;
+                if (k == 2) {
+                    int v = score_of(pick, 2);
+                    if (v > lbest) { lbest = v; lset.assign(pick, pick + 2); }
+                    continue;
+                }
+                for (size_t l = j + 1; l < nc; ++l) {
+                    pick[2] = (int32_t)l;
+                    int v = score_of(pick, 3);
+                    if (v > lbest) { lbest = v; lset.assign(pick, pick + 3); }
+                }
+            }
+        }
+#pragma omp critical
+        if (lbest > best) { best = lbest; best_set = lset; }
+    }
+    std::printf("EXACT tau=%g k=%d  optimum = %d  (of %zu buildings)\n", tau, k, best, nb);
+    return 0;
+}
+
 int main(int argc, char** argv) {
     Args A;
     if (argc > 1 && argv[1][0] != '-') A.cmd = argv[1];
@@ -559,12 +678,15 @@ int main(int argc, char** argv) {
         else if (a == "--verify-radius") A.verify_radius = std::atof(next().c_str());
         else if (a == "--subset") A.subset = std::atoi(next().c_str());
         else if (a == "--rewrite") A.rewrite = next();
+        else if (a == "--restarts") A.restarts = std::atoi(next().c_str());
+        else if (a == "--rcl-eps") A.rcl_eps = std::atof(next().c_str());
     }
     now_s();
     try {
         if (A.cmd == "bench") return cmd_bench(A);
         if (A.cmd == "verify") return cmd_verify(A);
         if (A.cmd == "dump") return cmd_dump(A);
+        if (A.cmd == "exact") return cmd_exact(A);
         if (A.cmd == "crosscheck") return cmd_crosscheck(A);
         return cmd_solve(A);
     } catch (const std::exception& e) {

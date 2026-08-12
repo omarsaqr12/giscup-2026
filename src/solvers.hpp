@@ -94,6 +94,7 @@ public:
     }
 
     int score() const { return score_; }
+    void set_random(double eps, unsigned seed) { rcl_eps_ = eps; rng_seed_ = seed; }
     const std::vector<int32_t>& picked() const { return picked_; }
 
     // Per-building potential. u is progress toward the threshold, in [0,1].
@@ -225,6 +226,8 @@ private:
     std::vector<char> active_;  // buildings the objective is allowed to care about
     std::vector<double> target_;
     std::vector<double> reach_;
+    double rcl_eps_ = 0.0;   // randomised greedy: accept any gain within (1-eps) of best
+    unsigned rng_seed_ = 0;
     bool cost_mode_ = false;  // price remaining work in antennas rather than metres
     std::vector<int32_t> picked_;
     int score_ = 0;
@@ -308,12 +311,41 @@ inline void Solver::run_greedy(int k, bool verbose) {
 
     long long evals = 0;
     int iter = 0;
+    std::mt19937 rng(rng_seed_ * 2654435761u + 12345u);
+    std::vector<Node> rcl;   // restricted candidate list, for the randomised variant
     while ((int)picked_.size() < k && !pq.empty()) {
         Node n = pq.top();
         pq.pop();
         if (chosen_[n.c]) continue;
-        if (n.stamp == iter) {           // gain is fresh for this round -> take it
-            apply(n.c);
+        if (n.stamp == iter) {           // gain is fresh for this round
+            if (rcl_eps_ <= 0) { apply(n.c); ++iter; continue; }
+            // GRASP: gather the fresh near-best candidates and pick one at
+            // random. Exhaustive search on tiny instances showed plain greedy
+            // reaching only 75-85% of the optimum -- it commits to the single
+            // best next antenna and cannot see the pair that beats it. Sampling
+            // near-best choices explores different trajectories; restarts run
+            // concurrently and the best is kept, so this only ever helps.
+            rcl.clear();
+            rcl.push_back(n);
+            double thresh = n.gain * (1.0 - rcl_eps_);
+            while ((int)rcl.size() < 8 && !pq.empty()) {
+                Node m = pq.top();
+                if (chosen_[m.c]) { pq.pop(); continue; }
+                if (m.gain < thresh) break;
+                pq.pop();
+                if (m.stamp != iter) {
+                    m.gain = gain(m.c);
+                    ++evals;
+                    m.stamp = iter;
+                    if (m.gain > 0) pq.push(m);
+                    continue;
+                }
+                rcl.push_back(m);
+            }
+            size_t pickpos = rng() % rcl.size();
+            for (size_t q = 0; q < rcl.size(); ++q)
+                if (q != pickpos) pq.push(rcl[q]);
+            apply(rcl[pickpos].c);
             ++iter;
             continue;
         }
