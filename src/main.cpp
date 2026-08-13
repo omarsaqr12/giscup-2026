@@ -76,6 +76,7 @@ struct Args {
     int finalists = 2;
     int restarts = 0;      // GRASP restarts, run concurrently
     double rcl_eps = 0.15;
+    bool reach_bundles = false;
     int beam = 0;            // beam width; 0 disables
     int beam_single = 24;
     int beam_pairs = 24;
@@ -85,6 +86,7 @@ struct Args {
 
 // The exponent sweep runs the un-polished variant; the winner is then polished.
 static Algo base_algo(Algo a) {
+    if (a == Algo::LagrangianLNS || a == Algo::Lagrangian) return Algo::Lagrangian;
     if (a == Algo::BeamLNS || a == Algo::Beam) return Algo::Beam;
     if (a == Algo::CostAwareLNS || a == Algo::CostAware) return Algo::CostAware;
     if (a == Algo::FocusLNS || a == Algo::Focus) return Algo::Focus;
@@ -92,6 +94,7 @@ static Algo base_algo(Algo a) {
     return a;
 }
 static Algo polish_algo(Algo a) {
+    if (a == Algo::Lagrangian || a == Algo::LagrangianLNS) return Algo::LagrangianLNS;
     if (a == Algo::Beam || a == Algo::BeamLNS) return Algo::BeamLNS;
     if (a == Algo::CostAware || a == Algo::CostAwareLNS) return Algo::CostAwareLNS;
     if (a == Algo::Focus || a == Algo::FocusLNS) return Algo::FocusLNS;
@@ -110,6 +113,8 @@ static Algo parse_algo(const std::string& s) {
     if (s == "costaware+lns") return Algo::CostAwareLNS;
     if (s == "beam") return Algo::Beam;
     if (s == "beam+lns") return Algo::BeamLNS;
+    if (s == "lagrangian") return Algo::Lagrangian;
+    if (s == "lagrangian+lns") return Algo::LagrangianLNS;
     if (s == "potential+lns") return Algo::PotentialLNS;
     return Algo::FocusLNS;
 }
@@ -253,6 +258,7 @@ static int cmd_solve(const Args& A) {
                 Cfg cfg = ranked[i].second;
                 Solver S(sc, cands, C, I, tau, cfg.pw, A.normalise, cfg.cost);
                 if (A.beam > 0) S.set_beam(A.beam, A.beam_single, A.beam_pairs);
+                S.set_reach_from_bundles(A.reach_bundles);
                 S.run(base_algo(A.algo), k, 0.0, A.seed, false);
                 harvest(S, cfg);
             }
@@ -296,6 +302,7 @@ static int cmd_solve(const Args& A) {
                 int before = best_score;
                 Solver S(sc, cands, C, I, tau, best_cfg.pw, A.normalise, best_cfg.cost);
                 if (A.beam > 0) S.set_beam(A.beam, A.beam_single, A.beam_pairs);
+                S.set_reach_from_bundles(A.reach_bundles);
                 S.set_two_exchange(A.swap_shortlist > 0, A.swap_shortlist);
                 S.run(polish_algo(A.algo), k, A.lns_sec, A.seed, false);
                 harvest(S, best_cfg);
@@ -974,6 +981,7 @@ int main(int argc, char** argv) {
         else if (a == "--rcl-eps") A.rcl_eps = std::atof(next().c_str());
         else if (a == "--swap") A.swap_shortlist = std::atoi(next().c_str());
         else if (a == "--beam") A.beam = std::atoi(next().c_str());
+        else if (a == "--reach-bundles") A.reach_bundles = true;
         else if (a == "--beam-single") A.beam_single = std::atoi(next().c_str());
         else if (a == "--beam-pairs") A.beam_pairs = std::atoi(next().c_str());
     }

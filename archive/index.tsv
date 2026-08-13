@@ -36,3 +36,15 @@ tau	k	score	method	timestamp	file
 0.75	1000	5534	focus+lns,p1.5,ant,lns150s,swap	2026-08-13T05:52:58	placements/tau0.75_k1000_s5534_1786589578.txt
 0.75	500	2828	beam+lns,p2.0,ant,lns60s,swap	2026-08-13T05:57:36	placements/tau0.75_k500_s2828_1786589856.txt
 0.75	500	2843	beam+lns,p2.0,ant,lns60s,swap	2026-08-13T06:12:47	placements/tau0.75_k500_s2843_1786590767.txt
+0.75	50	393	focus+lns,p3.0,metre,lns60s,swap	2026-08-13T07:05:41	placements/tau0.75_k50_s393_1786593941.txt
+0.75	50	393	focus+lns,p3.0,metre,lns60s,swap	2026-08-13T07:06:54	placements/tau0.75_k50_s393_1786594014.txt
+0.75	50	379	lagrangian+lns,p3.0,metre,lns60s,swap	2026-08-13T07:08:07	placements/tau0.75_k50_s379_1786594087.txt
+0.5	50	868	focus+lns,p8.0,metre,lns60s,swap	2026-08-13T07:09:20	placements/tau0.5_k50_s868_1786594160.txt
+0.5	50	868	focus+lns,p8.0,metre,lns60s,swap	2026-08-13T07:10:33	placements/tau0.5_k50_s868_1786594233.txt
+0.5	50	850	lagrangian+lns,p8.0,metre,lns60s,swap	2026-08-13T07:11:45	placements/tau0.5_k50_s850_1786594305.txt
+0.75	500	2874	focus+lns,p2.0,ant,lns60s,swap	2026-08-13T07:13:02	placements/tau0.75_k500_s2874_1786594382.txt
+0.75	500	2874	focus+lns,p2.0,ant,lns60s,swap	2026-08-13T07:14:18	placements/tau0.75_k500_s2874_1786594458.txt
+0.75	500	2799	lagrangian+lns,p2.0,ant,lns60s,swap	2026-08-13T07:15:33	placements/tau0.75_k500_s2799_1786594533.txt
+0.25	500	10531	focus+lns,p6.0,metre,lns60s,swap	2026-08-13T07:16:52	placements/tau0.25_k500_s10531_1786594612.txt
+0.25	500	10531	focus+lns,p6.0,metre,lns60s,swap	2026-08-13T07:18:10	placements/tau0.25_k500_s10531_1786594690.txt
+0.25	500	10560	lagrangian+lns,p6.0,metre,lns60s,swap	2026-08-13T07:19:27	placements/tau0.25_k500_s10560_1786594767.txt
