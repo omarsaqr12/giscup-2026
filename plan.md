@@ -712,68 +712,130 @@ The parameters that trade quality for time, in the order to reach for them:
 
 ---
 
-## 9. Run-day playbook (15–16 Aug)
+## 9. Run-day playbook — 15–16 Aug, CEST
 
-Written to be followed at 3 a.m. without judgement calls. Every step is a
-command; nothing here requires deciding anything.
+Window opens **18:00 CEST Fri 15 Aug**, closes **18:00 CEST Sat 16 Aug**.
+Written to be executed, not interpreted. Every step is a command with an
+expected duration and a go/no-go. If a step fails, the fallback is named — do
+not improvise at 03:00.
 
-### Step 1 — readiness (≈15 min)
+**The one rule that outranks everything:** upload a verified conservative
+archive EARLY, then replace it. EasyChair submissions are updatable until the
+deadline. A good-but-submitted score beats a great-but-unsubmitted one, and the
+largest defect found in development was a *formatting* error that scored zero
+with every internal gate green (§FINDINGS 5.20).
 
-```bash
-make && make check                  # figure oracle + brute-force crosscheck
-bash tools/runday.sh <NEW>.geojson  # inspection, robustness, radii, diagnostic
-```
-
-`runday.sh` prints **GO** or **NO-GO** and the two numbers everything else
-needs: `RADIUS` and `VRAD`. If it prints NO-GO, the problem is named in its
-output — fix that before anything else. Do **not** carry over 1000/3000 from the
-sample: §5.16 is the record of exactly that mistake being made twice.
-
-### Step 2 — schedule (1 min)
+### 18:00 — T+0:00  Fetch (10 min)
 
 ```bash
-python3 tools/allocate.py <HOURS_LEFT> --precompute <FROM_RUNDAY>     --data <NEW>.geojson --radius <RADIUS> --verify-radius <VRAD>
+cd evaluator && git pull && git log --format='%H' -1     # re-pin; note the hash
+npm install --no-audit --no-fund                          # or pnpm if available
+npx vitest run                                            # must be all-green
+cd .. && git pull                                         # dataset + parameters
 ```
 
-Prints one `giscup solve` line per sub-problem with polish time weighted by
-measured sensitivity. Run them **in the order printed** — τ=0.75 first, so if
-the clock runs out the cheap saturated blocks are what got skipped.
+Go/no-go: evaluator suite green. If the organizers pushed changes, **re-read
+`src/core/solution-parser.ts` and `constants.ts`** before anything else — the
+format and tolerances are the only things that can zero a block.
 
-### Step 3 — solve
-
-Paste the lines. Each carries `--archive-add`, so every run ratchets into the
-archive and **cannot make the submission worse**. Interrupt any of them freely.
-
-If time remains, re-run the deciding sub-problems with a different radius
-(§5.16 found 1000 m best at two of three, 1500 m at the other) or a longer
-`--lns-sec`. Repeats are free: only improvements survive.
-
-### Step 4 — assemble and verify (≈5 min)
+### 18:10 — T+0:10  Read the parameters (5 min)
 
 ```bash
-./giscup archive export-submission --data <NEW>.geojson --out submission.txt
-./giscup verify --data <NEW>.geojson --out submission.txt
+python3 tools/parse_params.py competition-parameters.txt > params.txt
+cat params.txt        # expect 9 lines "tau k"
 ```
 
-Assemble from the **archive**, never from a solve run. The last line must read
-`SUBMISSION OK` with `false=0` and `missed=0` on all nine blocks. If it does
-not, do not submit — `archive best` shows what is available instead.
+Go/no-go: exactly 9 blocks. If the parser refuses, it is telling you the format
+is not one it recognises — **read the file and pass `--tau`/`--k` explicitly**.
+Do not edit the parser under time pressure.
 
-### Step 5 — package
+### 18:15 — T+0:15  Readiness (30–60 min, scales with dataset)
 
 ```bash
-zip -r submission.zip submission.txt src/ tests/ tools/ Makefile README.md
+bash tools/runday.sh GIS-cup-competition-dataset.geojson competition-parameters.txt
 ```
 
-### If something goes wrong
+Inspects loader quirks, runs the robustness suite against the *real* file,
+re-derives `--radius` and `--verify-radius` on the real geometry, and runs the
+marginal-returns diagnostic. Prints **GO** or **NO-GO** plus the two radii.
+
+Never inherit radii from the sample: §5.16 records both being silently
+invalidated by an unrelated change.
+
+### 19:15 — T+1:15  First submission, deliberately cheap (45 min)
+
+```bash
+./giscup solve --data <DATA> --params params.txt \
+    --radius <R> --verify-radius <V> --lns-sec 60 --swap 400 \
+    --archive-add --method safety --out /dev/null
+./giscup archive export-submission --data <DATA> --params params.txt --out results.txt
+python3 tests/conformance.py results.txt 9
+bash tools/package.sh results.txt giscup2026-submission.zip 9
+```
+
+**Upload it.** From here every later step can only improve the archive; if
+everything after this fails, this is already a real submission.
+
+### 20:00 — T+2:00  Schedule the remaining window
+
+```bash
+python3 tools/allocate.py <HOURS_LEFT> --params params.txt \
+    --variance results/variance.tsv --data <DATA> --radius <R> --verify-radius <V>
+```
+
+Run the printed lines **in the order given** — highest-variance blocks first, so
+a clock overrun skips the blocks worth least.
+
+### ~14:00 Sat — T+20:00  Final assembly (60–90 min)
+
+```bash
+./giscup archive export-submission --data <DATA> --params params.txt --out results.txt
+./giscup verify --data <DATA> --out results.txt          # expect false=0 missed=0
+cd evaluator && npx vite-node ../tools/official_eval.mjs -- . <DATA> ../results.txt
+```
+
+The official harness is the last word. Budget ~26 min at sample scale, more at
+larger `k` and building count. Go/no-go: **claimed == verified in all nine
+blocks, zero warnings.**
+
+### 15:30 Sat — T+21:30  Package and re-upload
+
+```bash
+bash tools/package.sh results.txt giscup2026-submission.zip 9
+```
+
+It refuses to write the archive unless conformance and `make check` both pass.
+Upload. **Stop.** The last 2.5 hours are reserve, not optimisation time.
+
+### Failure playbook
 
 | symptom | action |
 |---|---|
-| `runday.sh` says NO-GO on the id property | loader falls back to sequential ids; check they match the file's own ids before trusting claims |
-| precompute is too slow | lower `--radius`; §5.3/§5.16 give the quality cost |
-| verification is too slow | use the `--verify-radius` from `runday.sh`; never guess it |
-| a solve is killed mid-run | nothing is lost — the archive holds every completed sub-problem |
-| scores look implausibly high | `giscup verify` is the arbiter, not the solver's own report (§5.18) |
+| parser refuses the parameters file | read it, pass `--tau`/`--k` explicitly; do not edit the parser |
+| `runday.sh` says NO-GO on the id property | loader falls back to sequential ids — confirm they match the file's own ids before trusting any claim |
+| precompute too slow / RAM pressure | see the memory rule below |
+| official harness too slow at final assembly | it is the *final* gate only; if it cannot finish, ship the internally-verified file — our engine agreed with it on 51,844/51,844 claims (§5.20) |
+| a solve is killed mid-run | nothing is lost; the archive holds every completed block |
+| score looks implausibly high | `giscup verify` is the arbiter, never the solver's own report (§5.18) |
+
+### Memory rule (decide now, not at 03:00)
+
+Measured (§5.14): **0.6 GB at 12,860 buildings, 2.5 GB at 4×, 7.6 GB at 16×** —
+roughly linear, ~0.05 GB per 1,000 buildings at radius 600, and rising with
+radius.
+
+```
+projected_GB ≈ 0.05 × (buildings / 1000) × (radius / 600)²
+```
+
+Against available RAM:
+
+| projection | action |
+|---|---|
+| < 50% | proceed at the tuned radius |
+| 50–75% | drop to the next lower radius in the `tune` table |
+| 75–90% | radius 600, `--min-frac 0.02` |
+| > 90% | solve in two halves by `--tau`, exporting between; the archive makes this safe |
 
 ## 10. Ideas not yet exhausted
 

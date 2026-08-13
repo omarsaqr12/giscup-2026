@@ -1,0 +1,18 @@
+file            /tmp/claude-1001/-home-mohab-Downloads-hiLang/baee9b82-b40f-4746-8a12-6b755987707d/scratchpad/rehearsal.geojson
+type            FeatureCollection
+crs             {"type": "name", "properties": {"name": "urn:ogc:def:crs:EPSG::32611"}}
+features        51,440
+geometry types  {'Polygon': 51440}
+property keys   {'id': 51440}
+id property     'id'  type=int  unique=True
+rings/feature   {1: 51440}
+orientation     {'cw': 51440}  (loader normalises to CCW)
+coordinate dims [2]
+vertices        total 314,908  median 6  max 38
+perimeter (m)   median 62.1  mean 66.8  max 1066.1
+extent          9,923 m x 8,558 m
+density         606 buildings/km^2
+
+scale vs sample 4.0x  (projected precompute ~19s at radius 600, ~2.4 GB)
+
+no blocking problems found
