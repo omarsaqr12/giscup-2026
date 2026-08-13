@@ -35,7 +35,7 @@
 namespace gc {
 
 enum class Algo { SelfCover, Truncated, Bundle, BundleLNS, Potential, PotentialLNS,
-                  Focus, FocusLNS, CostAware, CostAwareLNS };
+                  Focus, FocusLNS, CostAware, CostAwareLNS, Beam, BeamLNS };
 
 inline const char* algo_name(Algo a) {
     switch (a) {
@@ -49,6 +49,8 @@ inline const char* algo_name(Algo a) {
         case Algo::FocusLNS: return "focus+lns";
         case Algo::CostAware: return "costaware";
         case Algo::CostAwareLNS: return "costaware+lns";
+        case Algo::Beam: return "beam";
+        case Algo::BeamLNS: return "beam+lns";
     }
     return "?";
 }
@@ -201,7 +203,29 @@ public:
         return gained;
     }
 
+    // A beam has to fork a partial solution. Copying whole Solvers is wasteful;
+    // this captures just the mutable search state. Most buildings have empty
+    // coverage for most of a run, so the copy is far cheaper than it looks.
+    struct State {
+        std::vector<ArcSet> cov;
+        std::vector<char> serviced, chosen;
+        std::vector<std::vector<int32_t>> holders;
+        std::vector<int32_t> picked;
+        int score = 0;
+    };
+    State snapshot() const { return State{cov_, serviced_, chosen_, holders_, picked_, score_}; }
+    void restore(const State& s) {
+        cov_ = s.cov; serviced_ = s.serviced; chosen_ = s.chosen;
+        holders_ = s.holders; picked_ = s.picked; score_ = s.score;
+    }
+
+    // One extension of a partial placement: a single antenna, or a pair that
+    // completes a building neither member completes alone.
+    struct Ext { int32_t a = -1, b = -1; double gain = 0; int n = 1; };
+    void top_extensions(int n_single, int n_pair, std::vector<Ext>& out);
+
     void run(Algo algo, int k, double time_budget_sec, unsigned seed, bool verbose);
+    void set_beam(int width, int ns, int np) { beam_w_ = width; beam_single_ = ns; beam_pair_ = np; }
 
     // Recompute coverage from scratch for the current pick set.
     void rebuild();
@@ -211,6 +235,7 @@ private:
     void run_bundle(int k, bool verbose);
     void run_selfcover(int k, bool verbose);
     void run_focus(int k, bool verbose);
+    void run_beam(int k, bool verbose);
     bool two_exchange_pass(int shortlist);
     void withdraw(int32_t c);
     int lns(int k, double time_budget_sec, unsigned seed, bool verbose,
@@ -235,6 +260,7 @@ private:
     std::vector<char> active_;  // buildings the objective is allowed to care about
     std::vector<double> target_;
     std::vector<double> reach_;
+    int beam_w_ = 4, beam_single_ = 24, beam_pair_ = 24;
     bool two_exchange_on_ = false;
     int two_exchange_shortlist_ = 400;
     double rcl_eps_ = 0.0;   // randomised greedy: accept any gain within (1-eps) of best
@@ -634,6 +660,135 @@ inline bool Solver::two_exchange_pass(int shortlist) {
     return false;
 }
 
+
+// Candidate extensions of the current partial placement.
+//
+// Singles are the usual best-marginal-gain choices. Pairs exist because the
+// exhaustive oracle (FINDINGS 5.11) showed plain greedy losing 20% on a
+// *two-antenna* instance: it commits to the best single next antenna and cannot
+// see the pair that beats it. 2-exchange (5.13) repairs that after the fact;
+// this offers the pair during construction, before the budget is committed.
+//
+// Pairs are not enumerated over all candidates -- that is O(|C|^2). They are
+// generated per building, from the antennas that actually see it, which is what
+// makes the move affordable.
+inline void Solver::top_extensions(int n_single, int n_pair, std::vector<Ext>& out) {
+    out.clear();
+    std::vector<std::pair<double, int32_t>> sing;
+    sing.reserve(cands_.size() / 4 + 1);
+    for (size_t c = 0; c < cands_.size(); ++c) {
+        if (chosen_[c] || C_.start[c] == C_.start[c + 1]) continue;
+        double g = gain((int32_t)c);
+        if (g > 0) sing.emplace_back(g, (int32_t)c);
+    }
+    if ((int)sing.size() > n_single) {
+        std::nth_element(sing.begin(), sing.begin() + n_single, sing.end(),
+                         [](const std::pair<double, int32_t>& x,
+                            const std::pair<double, int32_t>& y) { return x.first > y.first; });
+        sing.resize(n_single);
+    }
+    std::sort(sing.begin(), sing.end(),
+              [](const std::pair<double, int32_t>& x, const std::pair<double, int32_t>& y) {
+                  return x.first > y.first;
+              });
+    for (const auto& t : sing) out.push_back({t.second, -1, t.first, 1});
+
+    if (n_pair <= 0) return;
+    // Buildings that a pair could plausibly finish: rank unserviced ones by how
+    // close two antennas' worth of reach would get them.
+    std::vector<std::pair<double, int32_t>> near;
+    for (size_t b = 0; b < sc_.buildings.size(); ++b) {
+        if (serviced_[b] || !active_[b]) continue;
+        double need = target_[b] - cov_[b].measure;
+        double r = reach_[b] > 0 ? reach_[b] : target_[b];
+        if (need <= 0 || need > 2.0 * r) continue;   // unreachable by a pair
+        near.emplace_back(need / r, (int32_t)b);
+    }
+    if ((int)near.size() > n_pair) {
+        std::nth_element(near.begin(), near.begin() + n_pair, near.end(),
+                         [](const std::pair<double, int32_t>& x,
+                            const std::pair<double, int32_t>& y) { return x.first < y.first; });
+        near.resize(n_pair);
+    }
+    std::vector<int32_t> bundle;
+    for (const auto& nb : near) {
+        int cost = completion_bundle(nb.second, bundle, 2);
+        if (cost != 2) continue;                       // 1 is already a single
+        double g = gain(bundle[0]);
+        // Value the pair by what it achieves together, per antenna spent.
+        State st = snapshot();
+        apply(bundle[0]);
+        g += gain(bundle[1]);
+        restore(st);
+        out.push_back({bundle[0], bundle[1], g, 2});
+    }
+}
+
+// Beam search construction.
+//
+// Why this is not a repeat of the GRASP failure (FINDINGS 5.12): GRASP sampled
+// randomly, and at k=50 over 78,727 candidates 128 restarts covered a vanishing
+// corner of the space. A beam keeps deterministic breadth along the *whole*
+// trajectory -- diversity is maintained at every step rather than only at the
+// seed -- so its coverage does not decay with candidate count the same way.
+inline void Solver::run_beam(int k, bool verbose) {
+    std::vector<State> beam;
+    beam.push_back(snapshot());
+    std::vector<Ext> exts;
+    long long forks = 0, pairs_taken = 0;
+
+    while (true) {
+        struct Cand { int parent; Ext e; double key; };
+        std::vector<Cand> pool;
+        bool any = false;
+        for (size_t i = 0; i < beam.size(); ++i) {
+            if ((int)beam[i].picked.size() >= k) continue;
+            restore(beam[i]);
+            int room = k - (int)picked_.size();
+            top_extensions(beam_single_, room >= 2 ? beam_pair_ : 0, exts);
+            for (const Ext& e : exts) {
+                if (e.n > room) continue;
+                // Rank by gain per antenna so a pair is not automatically
+                // preferred just for spending more budget.
+                pool.push_back({(int)i, e, e.gain / e.n});
+                any = true;
+            }
+        }
+        if (!any) break;
+        std::sort(pool.begin(), pool.end(),
+                  [](const Cand& x, const Cand& y) { return x.key > y.key; });
+
+        std::vector<State> next;
+        std::vector<std::vector<int32_t>> seen;
+        for (const Cand& c : pool) {
+            if ((int)next.size() >= beam_w_) break;
+            restore(beam[c.parent]);
+            apply(c.e.a);
+            if (c.e.b >= 0) { apply(c.e.b); ++pairs_taken; }
+            // Two parents can reach the same set by different orders; keep the
+            // beam genuinely diverse rather than holding duplicates.
+            std::vector<int32_t> key = picked_;
+            std::sort(key.begin(), key.end());
+            if (std::find(seen.begin(), seen.end(), key) != seen.end()) continue;
+            seen.push_back(key);
+            next.push_back(snapshot());
+            ++forks;
+        }
+        if (next.empty()) break;
+        beam.swap(next);
+        bool done = true;
+        for (const auto& st : beam) if ((int)st.picked.size() < k) done = false;
+        if (done) break;
+    }
+
+    int bi = 0;
+    for (size_t i = 1; i < beam.size(); ++i) if (beam[i].score > beam[bi].score) bi = (int)i;
+    restore(beam[bi]);
+    if (verbose)
+        std::fprintf(stderr, "[beam] w=%d k=%d forks=%lld pairs=%lld score=%d\n", beam_w_, k,
+                     forks, pairs_taken, score_);
+}
+
 inline void Solver::rebuild() {
     for (auto& a : cov_) a.clear();
     std::fill(serviced_.begin(), serviced_.end(), 0);
@@ -756,6 +911,13 @@ inline void Solver::run(Algo algo, int k, double time_budget_sec, unsigned seed,
             lns(k, time_budget_sec, seed, verbose, std::vector<char>(active_.size(), 1));
             break;
         case Algo::Focus: run_focus(k, verbose); break;
+        case Algo::Beam: run_beam(k, verbose); break;
+        case Algo::BeamLNS: {
+            run_beam(k, verbose);
+            std::vector<char> full(active_.size(), 1);
+            lns(k, time_budget_sec, seed, verbose, full);
+            break;
+        }
         case Algo::CostAware: cost_mode_ = true; run_focus(k, verbose); break;
         case Algo::CostAwareLNS:
             cost_mode_ = true;

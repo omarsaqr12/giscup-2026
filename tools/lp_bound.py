@@ -58,6 +58,8 @@ def load(path):
             _id, p = f.readline().split()
             per.append(float(p))
         ncand = int(f.readline().split()[1])
+        for _ in range(ncand):
+            f.readline()          # candidate coordinates, unused by the bound
         narc = int(f.readline().split()[1])
         for _ in range(narc):
             c, b, s0, s1 = f.readline().split()

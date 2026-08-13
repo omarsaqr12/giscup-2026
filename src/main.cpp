@@ -76,18 +76,23 @@ struct Args {
     int finalists = 2;
     int restarts = 0;      // GRASP restarts, run concurrently
     double rcl_eps = 0.15;
+    int beam = 0;            // beam width; 0 disables
+    int beam_single = 24;
+    int beam_pairs = 24;
     int swap_shortlist = 0;   // 2-exchange addition shortlist; 0 disables  // exponents promoted from the cheap sweep to the focused run
     std::vector<double> powers{1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0, 8.0};
 };
 
 // The exponent sweep runs the un-polished variant; the winner is then polished.
 static Algo base_algo(Algo a) {
+    if (a == Algo::BeamLNS || a == Algo::Beam) return Algo::Beam;
     if (a == Algo::CostAwareLNS || a == Algo::CostAware) return Algo::CostAware;
     if (a == Algo::FocusLNS || a == Algo::Focus) return Algo::Focus;
     if (a == Algo::PotentialLNS || a == Algo::Potential) return Algo::Potential;
     return a;
 }
 static Algo polish_algo(Algo a) {
+    if (a == Algo::Beam || a == Algo::BeamLNS) return Algo::BeamLNS;
     if (a == Algo::CostAware || a == Algo::CostAwareLNS) return Algo::CostAwareLNS;
     if (a == Algo::Focus || a == Algo::FocusLNS) return Algo::FocusLNS;
     if (a == Algo::Potential || a == Algo::PotentialLNS) return Algo::PotentialLNS;
@@ -103,6 +108,8 @@ static Algo parse_algo(const std::string& s) {
     if (s == "focus") return Algo::Focus;
     if (s == "costaware") return Algo::CostAware;
     if (s == "costaware+lns") return Algo::CostAwareLNS;
+    if (s == "beam") return Algo::Beam;
+    if (s == "beam+lns") return Algo::BeamLNS;
     if (s == "potential+lns") return Algo::PotentialLNS;
     return Algo::FocusLNS;
 }
@@ -245,6 +252,7 @@ static int cmd_solve(const Args& A) {
             for (size_t i = 0; i < finalists; ++i) {
                 Cfg cfg = ranked[i].second;
                 Solver S(sc, cands, C, I, tau, cfg.pw, A.normalise, cfg.cost);
+                if (A.beam > 0) S.set_beam(A.beam, A.beam_single, A.beam_pairs);
                 S.run(base_algo(A.algo), k, 0.0, A.seed, false);
                 harvest(S, cfg);
             }
@@ -287,6 +295,7 @@ static int cmd_solve(const Args& A) {
                 double ts2 = now_s();
                 int before = best_score;
                 Solver S(sc, cands, C, I, tau, best_cfg.pw, A.normalise, best_cfg.cost);
+                if (A.beam > 0) S.set_beam(A.beam, A.beam_single, A.beam_pairs);
                 S.set_two_exchange(A.swap_shortlist > 0, A.swap_shortlist);
                 S.run(polish_algo(A.algo), k, A.lns_sec, A.seed, false);
                 harvest(S, best_cfg);
@@ -601,6 +610,7 @@ static int cmd_dump(const Args& A) {
     std::fprintf(f, "BUILDINGS %zu\n", sc.buildings.size());
     for (const auto& b : sc.buildings) std::fprintf(f, "%s %.17g\n", b.id.c_str(), b.perimeter);
     std::fprintf(f, "CANDS %zu\n", cands.size());
+    for (const auto& c : cands) std::fprintf(f, "%.17g %.17g\n", c.p.x, c.p.y);
     std::fprintf(f, "ARCS %zu\n", C.entries());
     for (size_t c = 0; c + 1 < C.start.size(); ++c)
         for (int64_t j = C.start[c]; j < C.start[c + 1]; ++j)
@@ -963,6 +973,9 @@ int main(int argc, char** argv) {
         else if (a == "--restarts") A.restarts = std::atoi(next().c_str());
         else if (a == "--rcl-eps") A.rcl_eps = std::atof(next().c_str());
         else if (a == "--swap") A.swap_shortlist = std::atoi(next().c_str());
+        else if (a == "--beam") A.beam = std::atoi(next().c_str());
+        else if (a == "--beam-single") A.beam_single = std::atoi(next().c_str());
+        else if (a == "--beam-pairs") A.beam_pairs = std::atoi(next().c_str());
     }
     now_s();
     try {
