@@ -1,0 +1,13 @@
+[official] evaluator 0.1.0, @arcgis/core 5.1.0, spatial tolerance 0.001 m
+[official] dataset: 12860 buildings (492 ms)
+block 1  tau=0.25 k=50  claimed=2426  VERIFIED=2426  (23141 ms)
+block 2  tau=0.25 k=500  claimed=10581  VERIFIED=10581  (175911 ms)
+block 3  tau=0.25 k=1000  claimed=12809  VERIFIED=12809  (336888 ms)
+block 4  tau=0.5 k=50  claimed=868  VERIFIED=868  (13478 ms)
+block 5  tau=0.5 k=500  claimed=6148  VERIFIED=6148  (180180 ms)
+block 6  tau=0.5 k=1000  claimed=10161  VERIFIED=10161  (332862 ms)
+block 7  tau=0.75 k=50  claimed=393  VERIFIED=393  (11770 ms)
+block 8  tau=0.75 k=500  claimed=2924  VERIFIED=2924  (148746 ms)
+block 9  tau=0.75 k=1000  claimed=5534  VERIFIED=5534  (313147 ms)
+
+official total verified: 51844   [1536623 ms]

@@ -714,6 +714,56 @@ not decided** — which is the least useful place to be strong.
 
 Both default off. The archive was unchanged by the entire experiment.
 
+### 5.20 Conformance with the official evaluator — **two defects found, one fatal**
+
+The organizers publish their grading code
+([alowe/gis-cup-2026-evaluator](https://github.com/alowe/gis-cup-2026-evaluator),
+pinned at `9203c0d`, tag v0.1.0, `@arcgis/core` 5.1.0) and commit to consistency
+with it. It is therefore ground truth above our own figure oracle.
+
+**The fatal one.** Our writer emitted the parameter line as `0.25,50`. The
+official parser matches it with
+
+```
+/^\(\s*([^,]*)\s*,\s*([^,]*)\s*\)$/
+```
+
+anchored, parentheses required. The bare form matches nothing, so `tau` and `k`
+come back undefined, raising `INVALID_TAU` and `INVALID_K` — whose documented
+action is **"Score this subproblem as zero"**. All nine blocks. Zero.
+
+What makes this the most instructive failure in this log: **every internal gate
+stayed green.** The figure oracle, the brute-force crosscheck, 14/14 robustness
+variants, `SUBMISSION OK` — all passed, because all of them used our own reader,
+which accepted our own format. No amount of internal validation could have found
+it. Only the grader's own rules could.
+
+**The second.** The grader's verdict is `visibleLengthMeters >= tau *
+perimeterMeters` — a *length* comparison. Ours was ratio-form. Identical in
+exact arithmetic, not in doubles; and since the grader computes coverage **only
+for buildings we claim**, a last-ulp disagreement in the conservative direction
+still costs a point. Verify now uses the grader's operand form.
+
+**Differential result.** Our archive-best submission, through the official
+grader end to end:
+
+| block | τ | k | claimed | verified | flips |
+|---|---|---|---|---|---|
+| 1–9 | all | all | **51,844** | **51,844** | **0** |
+
+Zero verdict flips across 51,844 claims — our exact-arc engine and their
+ArcGIS-backed radial sweep agree on every one. The harness also reproduces the
+repo's own 50-antenna fixture exactly (140 claimed, 140 verified, 0 warnings).
+
+**Run-day consequence.** The official filter costs ~26 min for all nine blocks at
+sample scale (k=50 ≈ 15 s, k=500 ≈ 170 s, k=1000 ≈ 330 s). Affordable as the
+final claim filter before packaging, far too slow for an inner loop. Our engine
+drives the search; the official harness is the last gate before upload.
+
+**Also corrected upstream:** the sample dataset lost building 9448's stray inner
+ring. Our loader's largest-ring handling made the effective geometry
+bit-identical — zero features differ — so every number in this document stands.
+
 ---
 
 ## 6. Final results
