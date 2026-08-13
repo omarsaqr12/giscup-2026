@@ -672,6 +672,50 @@ weak.** It is also the sharpest justification for the two structural rules
 already in place — the exact-oracle correctness gate, and the archive's refusal
 to admit anything that has not passed `giscup verify`.
 
+### 5.19 Lagrangian completion pricing — **both parts rejected**
+
+Two ideas, one refinement and one new constructor. Both measured, both dropped.
+
+**Bundle-based exchange rate.** §5.5 converts metres to antennas via `reach_b` =
+the largest slice a *single* antenna delivers, which is optimistic whenever a
+building needs two or three: the second antenna gets the harder facade. Replaced
+with the rate implied by the actual cheapest completion, `τ·P_b / m` for an
+`m`-antenna set. Passes the correctness gate at 1.00 — and produces
+**bit-identical scores** at every sub-problem measured (393, 868, 2874, 10531).
+Metre-priced configurations never consult `reach_` at all, and where
+antenna-pricing wins, the per-sub-problem exponent sweep absorbs the change: a
+different exponent reaches an equivalent solution. Theoretically right,
+practically inert once the exponent is already tuned.
+
+**Lagrangian price sweep.** Dualise the budget `Σy ≤ k` with a price λ; each
+building buys its cheapest completion when `c_b < 1/λ`; the *union* of accepted
+bundles supplies the sharing. This is genuinely distinct from the ratio greedy of
+§5.4, which picks sequentially by locally-cheapest marginal cost and therefore
+never sees the antenna that is mediocre for one building and excellent for
+twenty.
+
+It fails the correctness gate — 19 against optimum 20, 20 against 22 — and the
+polish does not recover it, so the sweep lands in a *worse basin* rather than
+merely starting further away. At scale (60 s polish, radius 1000):
+
+| τ | k | baseline | Lagrangian | |
+|---|---|---|---|---|
+| 0.75 | 50 | **393** | 379 | −3.6% |
+| 0.50 | 50 | **868** | 850 | −2.1% |
+| 0.75 | 500 | **2,874** | 2,799 | −2.6% |
+| 0.25 | 500 | 10,531 | **10,561** | +0.3% |
+
+The mechanism explains the shape exactly. At τ=0.25 nearly every building needs
+one antenna, so bundles are singletons and the sweep degenerates to clean maximum
+coverage, where union-based sharing is precisely the right instinct. At τ=0.75
+bundles are two or three antennas and taking their union is too coarse a way to
+spend a tight budget. **The method is strongest exactly where the competition is
+not decided** — which is the least useful place to be strong.
+
+Both default off. The archive was unchanged by the entire experiment.
+
+---
+
 ## 6. Final results
 
 Sample dataset, radius 1000, verify-radius 3000, 150 s polish per sub-problem,
@@ -741,9 +785,13 @@ competitively. The sub-problems that separate the field are **(0.75, 50)**,
    costs nothing but time.
 5. **Re-run `tools/runday.sh` against the real dataset** the moment it lands —
    against *it*, not against mutations of the sample.
-6. **Task 4 (Lagrangian completion pricing) was not reached.** §5.5's `reach_b` is
-   a one-antenna approximation of a multi-antenna completion; replacing it with an
-   exact per-building set-cover is the untried idea with the clearest rationale.
+6. **Every construction-side idea has now failed.** GRASP (§5.12), beam search
+   (§5.17) and Lagrangian pricing (§5.19) all lose to plain greedy once the
+   2-exchange polish is present, and §5.19 showed even a *correct* refinement of
+   the potential is absorbed by the exponent sweep. The consistent signal across
+   four attempts is that construction is no longer the bottleneck — effort
+   belongs in the repair operator, in the radii (§5.16, the only thing that has
+   paid this round), or in restoring a trustworthy bound.
 
 ## 8. Reproducing everything here
 
