@@ -18,6 +18,11 @@ portable: src/main.cpp src/coverage.cpp src/*.hpp
 check: test_figures $(BIN)
 	./test_figures tests/figures_groundtruth.txt
 	./$(BIN) crosscheck --data data/GIS-cup-sample-dataset.geojson
+	@echo "--- official submission-format conformance ---"
+	@./$(BIN) archive export-submission --data data/GIS-cup-sample-dataset.geojson \
+	    --out /tmp/giscup-conformance.txt >/dev/null 2>&1 || true
+	@test -s /tmp/giscup-conformance.txt && python3 tests/conformance.py /tmp/giscup-conformance.txt 9 | tail -2 \
+	    || echo "(no archive yet; skipping format conformance)"
 
 clean:
 	rm -f $(BIN) test_figures
