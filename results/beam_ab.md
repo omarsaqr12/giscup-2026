@@ -12,11 +12,14 @@ Correctness gate (giscup exact, k<=3) -- beam holds ratio 1.00, same as baseline
   n=70 tau=0.50 k=3 -> 22 = optimum
 
 Deciding sub-problems (60s polish each, radius 1000):
-  tau    k     beam=0   beam=4   beam=8
-  0.75   50       384      379      381
-  0.50   50       868      861      861
-  0.75  500      2868      ...      ...
-  runtime         76s     110s     144s   (at tau=0.75 k=50)
+  tau    k     beam=0   beam=4   beam=8      runtime (0 / 4 / 8)
+  0.75   50       384      379      381        76s / 110s / 144s
+  0.50   50       868      861      861        76s / 112s / 149s
+  0.75  500      2868     2828     2843        80s / 532s / 911s
+
+At (0.75,500) width 4 costs 6.6x the wall clock for a worse answer, and width 8
+costs 11.4x. The cost blows up because pair generation runs per step and the
+beam multiplies it.
 
 Beam loses at every sub-problem measured and costs 45-95% more wall clock.
 Default remains OFF (--beam 0).

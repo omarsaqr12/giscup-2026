@@ -2,5 +2,6 @@ incumbent: 3 antennas, 20 serviced (of 40 buildings)
 model: 204 antennas, 2,859 atoms, 40 buildings -> 3,103 vars (0 buildings fixed-serviced outside the model)
 
 windowed objective: incumbent 20 -> MIP 22   (total 20 -> 22)
-dual bound 22.0 on the window, gap 0.00%  [237s]
+dual bound 22.0 on the window, gap 0.00%  [222s]
   -> at most 22 serviced with this window fixed
+improved placement -> /tmp/claude-1001/-home-mohab-Downloads-hiLang/baee9b82-b40f-4746-8a12-6b755987707d/scratchpad/mip40.place  (3 antennas)
