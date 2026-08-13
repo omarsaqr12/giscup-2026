@@ -131,7 +131,13 @@ static void write_submission(const std::string& path, const Scene& sc,
         int k = std::get<1>(r);
         const auto& ants = std::get<2>(r);
         const auto& ids = std::get<3>(r);
-        std::fprintf(f, "%g,%d\n", tau, k);
+        // The official solution-parser matches the parameter line with
+        //     /^\(\s*([^,]*)\s*,\s*([^,]*)\s*\)$/
+        // which is anchored and REQUIRES the parentheses. A bare "0.25,50"
+        // yields INVALID_TAU + INVALID_K, whose documented action is "Score this
+        // subproblem as zero" -- i.e. the unparenthesised form silently zeroes
+        // every block. Emit exactly the shape the organizers' own fixtures use.
+        std::fprintf(f, "(%.17g, %d)\n", tau, k);
         for (size_t i = 0; i < ants.size(); ++i) {
             // %.17g round-trips an IEEE-754 double exactly, so the coordinates
             // the organizers parse are bit-identical to the ones we scored.
@@ -157,11 +163,18 @@ struct Verdict {
 static Verdict verify(const Scene& sc, const Visibility& vis, const std::vector<Vec2>& ants,
                       double tau, double margin, double radius = -1.0) {
     Evaluator ev(sc, vis);
-    auto cov = ev.coverage(ants, radius);
+    // Verdict taken in the official grader's operand form:
+    //     visibleLengthMeters >= tau * perimeterMeters
+    // rather than (visible/perimeter) >= tau. Equivalent in exact arithmetic,
+    // not in doubles. `margin` is applied as a relative slack on the required
+    // length so its meaning is unchanged.
+    auto len = ev.visible_lengths(ants, radius);
     Verdict v{0, {}, 0, 0, 0};
-    for (size_t b = 0; b < cov.size(); ++b) {
-        double d = cov[b] - tau;
-        if (d >= margin) { v.claimed.push_back((int32_t)b); ++v.score; }
+    for (size_t b = 0; b < len.size(); ++b) {
+        double P = sc.buildings[b].perimeter;
+        double required = tau * P;
+        if (len[b] >= required + margin * P) { v.claimed.push_back((int32_t)b); ++v.score; }
+        double d = P > 0 ? (len[b] - required) / P : 0.0;
         if (d < 0 && d > -1e-9) ++v.near_miss;
         if (d >= 0 && d < 1e-9) ++v.near_hit;
     }
@@ -479,7 +492,8 @@ static int cmd_verify(const Args& A) {
         if (l1.empty()) continue;
         ++blocks;
         double tau = 0; int k = 0;
-        if (std::sscanf(l1.c_str(), "%lf,%d", &tau, &k) != 2) {
+        if (std::sscanf(l1.c_str(), "(%lf , %d )", &tau, &k) != 2 &&
+            std::sscanf(l1.c_str(), "%lf,%d", &tau, &k) != 2) {
             std::printf("block %d: unparseable header %s\n", blocks, l1.c_str());
             ++problems; continue;
         }
@@ -568,7 +582,7 @@ static int cmd_verify(const Args& A) {
         std::printf("          claim margin above tau:  <1e-12:%d  <1e-9:%d  <1e-6:%d  <1e-3:%d\n",
                     m12, m9, m6, m3);
         if (out_fixed) {
-            std::fprintf(out_fixed, "%g,%d\n", tau, k);
+            std::fprintf(out_fixed, "(%.17g, %d)\n", tau, k);
             for (size_t i = 0; i < ants.size(); ++i)
                 std::fprintf(out_fixed, "%s(%.17g,%.17g)", i ? "," : "", ants[i].x, ants[i].y);
             std::fputc('\n', out_fixed);
@@ -785,7 +799,8 @@ static int cmd_archive(const Args& A, const std::string& sub) {
             while (std::getline(in, l1) && std::getline(in, l2) && std::getline(in, l3)) {
                 if (l1.empty()) continue;
                 double tau = 0; int k = 0;
-                if (std::sscanf(l1.c_str(), "%lf,%d", &tau, &k) != 2) continue;
+                if (std::sscanf(l1.c_str(), "(%lf , %d )", &tau, &k) != 2 &&
+                    std::sscanf(l1.c_str(), "%lf,%d", &tau, &k) != 2) continue;
                 pend.push_back({tau, k, parse_coord_line(l2)});
             }
         } else if (!A.placement.empty()) {

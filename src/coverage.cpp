@@ -5,7 +5,8 @@
 
 namespace gc {
 
-std::vector<double> Evaluator::coverage(const std::vector<Vec2>& antennas, double radius) const {
+std::vector<double> Evaluator::visible_lengths(const std::vector<Vec2>& antennas,
+                                              double radius) const {
     size_t nb = sc_.buildings.size();
     std::vector<ArcSet> arcs(nb);
 
@@ -37,10 +38,20 @@ std::vector<double> Evaluator::coverage(const std::vector<Vec2>& antennas, doubl
         for (const ArcInterval& a : v)
             arcs[a.building].add(a.s0, a.s1);
 
-    std::vector<double> cov(nb, 0.0);
+    std::vector<double> len(nb, 0.0);
     for (size_t b = 0; b < nb; ++b) {
         double P = sc_.buildings[b].perimeter;
-        cov[b] = P > 0 ? std::min(1.0, arcs[b].measure / P) : 0.0;
+        len[b] = std::min(arcs[b].measure, P);   // clamp: cannot see more than the whole boundary
+    }
+    return len;
+}
+
+std::vector<double> Evaluator::coverage(const std::vector<Vec2>& antennas, double radius) const {
+    std::vector<double> len = visible_lengths(antennas, radius);
+    std::vector<double> cov(len.size(), 0.0);
+    for (size_t b = 0; b < len.size(); ++b) {
+        double P = sc_.buildings[b].perimeter;
+        cov[b] = P > 0 ? len[b] / P : 0.0;
     }
     return cov;
 }
