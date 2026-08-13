@@ -1,0 +1,7 @@
+probe sub-problem: tau=0.35 k=250 (no polish, single exponent)
+
+radius          score   precompute entries/cand
+150              4624         1.0s       20.2
+300              6236         4.5s       28.7
+600              6953        21.9s       34.8
+1000             7043        81.9s       37.5
