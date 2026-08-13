@@ -764,6 +764,38 @@ drives the search; the official harness is the last gate before upload.
 ring. Our loader's largest-ring handling made the effective geometry
 bit-identical — zero features differ — so every number in this document stands.
 
+### 5.21 Per-block radius and swap sweep — **resolves §7.3 and §7.4**
+
+Nine blocks × radius {1000, 1500, 2000} × with/without `--swap`, full polish,
+every result verified and archived (`tools/radius_sweep.sh`, 54 runs, 2.9 h of a
+6 h budget). No winner-picking logic exists or is needed: the archive keeps the
+best per block by construction, so a losing variant is simply never exported.
+
+| τ | k | r1000 sw | r1000 — | r1500 sw | r1500 — | r2000 sw | r2000 — | winner |
+|---|---|---|---|---|---|---|---|---|
+| 0.25 | 50 | 2,426 | 2,395 | **2,442** | 2,433 | 2,441 | 2,442 | r1500 swap |
+| 0.25 | 500 | 10,592 | 10,546 | 10,587 | **10,613** | 10,586 | 10,612 | r1500 **no swap** |
+| 0.25 | 1000 | 12,818 | 12,799 | 12,807 | 12,810 | **12,824** | 12,808 | r2000 swap |
+| 0.50 | 50 | 868 | 784 | 870 | 781 | **872** | 762 | r2000 swap |
+| 0.50 | 500 | 6,150 | 5,868 | **6,168** | 5,862 | 6,137 | 5,876 | r1500 swap |
+| 0.50 | 1000 | 10,180 | 9,846 | **10,182** | 9,868 | 10,179 | 9,898 | r1500 swap |
+| 0.75 | 50 | **392** | 290 | 387 | 296 | 383 | 281 | r1000 swap |
+| 0.75 | 500 | 2,932 | 2,614 | 2,915 | 2,593 | **2,970** | 2,638 | r2000 swap |
+| 0.75 | 1000 | 5,533 | 5,096 | **5,587** | 5,129 | 5,482 | 5,078 | r1500 swap |
+
+**§7.4 confirmed: there is no best global radius.** 1500 m wins five blocks,
+2000 m three, 1000 m one. Per-block tuning is not a refinement, it is required —
+and since scoring is per sub-problem, it costs nothing but time.
+
+**§7.3 resolved, and the concern was smaller than it looked.** 2-exchange wins
+**eight of nine** blocks, often decisively at high τ (2,932 vs 2,614 at
+(0.75, 500), +12%). It loses at exactly one — (0.25, 500), 10,587 vs 10,613 —
+the near-saturated block where §7.3 flagged it. The right response is not a
+τ-conditional rule but the sweep plus the archive: measure both, keep the
+winner, write no logic.
+
+Archive total: 51,844 → **52,051**.
+
 ---
 
 ## 6. Final results
@@ -826,13 +858,12 @@ competitively. The sub-problems that separate the field are **(0.75, 50)**,
    can be wrong.
 2. **Locate the MIP defect, or delete the tool.** It is disabled, but a wrong
    solver in the tree is a liability if someone later trusts its dual bound.
-3. **2-exchange costs a hair at saturated τ** — (0.25, 500) came out 10,462
-   against 10,466 without it. Harmless, but argues for making `--swap`
-   τ-conditional.
-4. **Radius should be re-tuned per sub-problem, not globally.** §5.16 found 1000 m
-   best at (0.75,50) and (0.5,500) but 1500 m best at (0.75,500). Since scoring is
-   per sub-problem and the archive ratchets, running both and keeping the winner
-   costs nothing but time.
+3. ~~2-exchange costs a hair at saturated τ~~ **Resolved (§5.21).** It wins 8 of
+   9 blocks and loses only at (0.25, 500). No τ-conditional rule: sweep both and
+   let the archive decide.
+4. ~~Radius should be re-tuned per sub-problem~~ **Resolved (§5.21).** Confirmed
+   and now automated: 1500 m wins five blocks, 2000 m three, 1000 m one. There is
+   no best global radius. `tools/radius_sweep.sh` is in the run-day path.
 5. **Re-run `tools/runday.sh` against the real dataset** the moment it lands —
    against *it*, not against mutations of the sample.
 6. **Every construction-side idea has now failed.** GRASP (§5.12), beam search
