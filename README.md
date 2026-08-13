@@ -38,6 +38,13 @@ Runs two independent checks:
 4. **`giscup exact`** — exhaustive optimum for k≤3, for measuring the true
    optimality gap on tiny instances.
 
+## Documents
+
+| file | contents |
+|---|---|
+| [`FINDINGS.md`](FINDINGS.md) | experiment log: the problem, every approach tried, and its measured result — including the ones that failed |
+| [`plan.md`](plan.md) | approach and run-day playbook |
+
 ## Run
 
 ```bash
