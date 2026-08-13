@@ -1,0 +1,56 @@
+tau    k      pow   price      exact    search     sec note
+0.35   250    8.0   metre       7701      7483     4.6 tuned
+0.35   250    8.0   metre       7958      7776    46.6 lns +257
+0.35   250    8.0   metre       7959         -       - exact claim +1
+0.35   1200   8.0   ant        24750     24543    19.9 tuned
+0.35   1200   8.0   ant        25079     24876    52.5 lns +329
+0.35   1200   8.0   ant        25080         -       - exact claim +1
+0.35   3000   8.0   ant        43309     43190    48.5 tuned
+0.35   3000   8.0   ant        43613     43512    63.5 lns +304
+0.6    250    4.0   ant         2332      2263     4.4 tuned
+0.6    250    4.0   ant         2758      2704    46.4 lns +426
+0.6    1200   3.0   ant         9832      9699    17.0 tuned
+0.6    1200   3.0   ant        10366     10250    51.7 lns +534
+0.6    3000   2.0   ant        23337     23179    41.2 tuned
+0.6    3000   2.0   ant        23744     23597    62.8 lns +407
+0.85   250    3.0   ant          874       860     4.6 tuned
+0.85   250    3.0   ant         1196      1190    46.7 lns +322
+0.85   1200   2.5   ant         4113      4065    19.5 tuned
+0.85   1200   2.5   ant         4648      4601    52.0 lns +535
+0.85   1200   2.5   ant         4649         -       - exact claim +1
+0.85   3000   1.5   ant        10240     10161    47.5 tuned
+0.85   3000   1.5   ant        10650     10582    67.8 lns +410
+[params] 3 tau x 3 k = 9 blocks from /tmp/claude-1001/-home-mohab-Downloads-hiLang/baee9b82-b40f-4746-8a12-6b755987707d/scratchpad/rehearsal-canonical.txt
+tau    k          score  method                 timestamp
+  note tau=0.35 k=250: archived 7958, re-verified 7959
+0.35   250         7959  focus+lns,p8.0,metre,lns45s,swap 2026-08-13T15:56:28
+  note tau=0.35 k=1200: archived 25079, re-verified 25080
+0.35   1200       25080  focus+lns,p8.0,ant,lns45s,swap 2026-08-13T15:57:56
+0.35   3000       43613  focus+lns,p8.0,ant,lns45s,swap 2026-08-13T16:00:28
+0.6    250         2758  focus+lns,p4.0,ant,lns45s,swap 2026-08-13T16:01:21
+0.6    1200       10366  focus+lns,p3.0,ant,lns45s,swap 2026-08-13T16:02:45
+0.6    3000       23744  focus+lns,p2.0,ant,lns45s,swap 2026-08-13T16:05:09
+0.85   250         1196  focus+lns,p3.0,ant,lns45s,swap 2026-08-13T16:06:04
+  note tau=0.85 k=1200: archived 4648, re-verified 4649
+0.85   1200        4649  focus+lns,p2.5,ant,lns45s,swap 2026-08-13T16:07:31
+0.85   3000       10650  focus+lns,p1.5,ant,lns45s,swap 2026-08-13T16:10:10
+
+total 130015 serviced -> /tmp/claude-1001/-home-mohab-Downloads-hiLang/baee9b82-b40f-4746-8a12-6b755987707d/scratchpad/reh_submission.txt
+
+blocks: 9 (expected 9)
+CONFORMANCE PASSED
+block 1  tau=0.35  k=250   antennas=250   claimed=7959   verified=7959   false=0    missed=0    unknown_id=0
+block 2  tau=0.35  k=1200  antennas=1200  claimed=25080  verified=25080  false=0    missed=0    unknown_id=0
+block 3  tau=0.35  k=3000  antennas=3000  claimed=43613  verified=43613  false=0    missed=0    unknown_id=0
+block 4  tau=0.6   k=250   antennas=250   claimed=2758   verified=2758   false=0    missed=0    unknown_id=0
+block 5  tau=0.6   k=1200  antennas=1200  claimed=10366  verified=10366  false=0    missed=0    unknown_id=0
+block 6  tau=0.6   k=3000  antennas=3000  claimed=23744  verified=23744  false=0    missed=0    unknown_id=0
+block 7  tau=0.85  k=250   antennas=250   claimed=1196   verified=1196   false=0    missed=0    unknown_id=0
+block 8  tau=0.85  k=1200  antennas=1200  claimed=4649   verified=4649   false=0    missed=0    unknown_id=0
+block 9  tau=0.85  k=3000  antennas=3000  claimed=10650  verified=10650  false=0    missed=0    unknown_id=0
+SUBMISSION OK
+tests
+tools
+
+PACKAGE READY: /tmp/claude-1001/-home-mohab-Downloads-hiLang/baee9b82-b40f-4746-8a12-6b755987707d/scratchpad/rehearsal.zip  -> upload to EasyChair (conf=giscup2026)
+	Maximum resident set size (kbytes): 2591912
