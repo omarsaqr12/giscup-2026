@@ -9,3 +9,12 @@ tau	k	score	method	timestamp	file
 0.75	500	2863	focus+ant+2exch,150s	2026-08-13T04:54:20	placements/tau0.75_k500_s2863_1786586060.txt
 0.75	1000	5391	focus+ant+2exch,150s	2026-08-13T04:54:22	placements/tau0.75_k1000_s5391_1786586062.txt
 0.75	50	49	selfcover-DELIBERATELY-WEAK	2026-08-13T04:55:06	placements/tau0.75_k50_s49_1786586106.txt
+0.75	50	376	focus+lns,p3.0,ant,lns60s,swap	2026-08-13T05:14:56	placements/tau0.75_k50_s376_1786587296.txt
+0.75	500	2847	focus+lns,p2.0,ant,lns60s,swap	2026-08-13T05:16:04	placements/tau0.75_k500_s2847_1786587364.txt
+0.5	500	6031	focus+lns,p3.0,ant,lns60s,swap	2026-08-13T05:17:13	placements/tau0.5_k500_s6031_1786587433.txt
+0.75	50	393	focus+lns,p3.0,metre,lns60s,swap	2026-08-13T05:18:27	placements/tau0.75_k50_s393_1786587507.txt
+0.75	500	2874	focus+lns,p2.0,ant,lns60s,swap	2026-08-13T05:19:44	placements/tau0.75_k500_s2874_1786587584.txt
+0.5	500	6105	focus+lns,p4.0,ant,lns60s,swap	2026-08-13T05:21:03	placements/tau0.5_k500_s6105_1786587663.txt
+0.75	50	384	focus+lns,p3.0,metre,lns60s,swap	2026-08-13T05:22:36	placements/tau0.75_k50_s384_1786587756.txt
+0.75	500	2893	focus+lns,p2.0,ant,lns60s,swap	2026-08-13T05:24:14	placements/tau0.75_k500_s2893_1786587854.txt
+0.5	500	6073	focus+lns,p4.0,ant,lns60s,swap	2026-08-13T05:25:51	placements/tau0.5_k500_s6073_1786587951.txt
