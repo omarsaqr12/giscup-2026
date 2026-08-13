@@ -9,3 +9,6 @@ results/*.log
 
 # scratch
 scale*.geojson
+
+# archive placements are large and regenerable; the index is the record
+archive/placements/

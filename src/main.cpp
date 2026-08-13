@@ -12,6 +12,7 @@
 #include "pipeline.hpp"
 #include "solvers.hpp"
 #include "bruteforce.hpp"
+#include "archive.hpp"
 #include <cstring>
 #include <cstdio>
 #include <string>
@@ -56,6 +57,12 @@ struct Args {
     double power = 1.0;
     bool normalise = true;
     unsigned seed = 12345;
+    bool archive_add = false;
+    double claim_epsilon = 0.0;   // required margin above tau before claiming
+    std::string archive_dir = "archive";
+    std::string method = "solve";
+    std::string placement;
+    std::string from_submission;
     std::string rewrite;
     int subset = 0;
     bool verbose = true;
@@ -296,6 +303,22 @@ static int cmd_solve(const Args& A) {
                     std::fflush(stdout);
                 }
                 best_claim = exact.claimed;
+            }
+            if (A.archive_add) {
+                // Feed every run into the archive. Experiments can then only
+                // ratchet the submission upward -- a run that comes out worse
+                // than the incumbent is recorded but never exported.
+                char m[128];
+                std::snprintf(m, sizeof m, "%s,p%.1f,%s,lns%gs%s", algo_name(A.algo),
+                              best_cfg.pw, best_cfg.cost ? "ant" : "metre", A.lns_sec,
+                              A.swap_shortlist ? ",swap" : "");
+                Archive ar(A.archive_dir);
+                ar.load();
+                const ArchiveEntry* prev = ar.best(tau, k);
+                ar.add(tau, k, best_score, m, best_ants);
+                if (prev && best_score > prev->score)
+                    std::printf("%-6g %-6d %-5s %-6s %9d %9s %7s archive NEW BEST (was %d)\n",
+                                tau, k, "-", "-", best_score, "-", "-", prev->score);
             }
             results.emplace_back(tau, k, best_ants, best_claim);
         }
@@ -669,6 +692,149 @@ static int cmd_exact(const Args& A) {
     return 0;
 }
 
+
+// ---------------------------------------------------------------------------
+// Archive: verified placements keyed by (tau, k). See src/archive.hpp for why.
+// ---------------------------------------------------------------------------
+
+// Parse the antenna coordinates out of a submission line "(x,y),(x,y),..."
+static std::vector<Vec2> parse_coord_line(const std::string& l) {
+    std::vector<Vec2> ants;
+    for (size_t i = 0; i + 1 < l.size(); ++i) {
+        if (l[i] != '(') continue;
+        double x, y;
+        if (std::sscanf(l.c_str() + i, "(%lf,%lf)", &x, &y) == 2) ants.push_back({x, y});
+    }
+    return ants;
+}
+
+static int cmd_archive(const Args& A, const std::string& sub) {
+    Archive ar(A.archive_dir);
+    ar.load();
+
+    if (sub == "list") {
+        std::printf("%-6s %-6s %9s  %-22s %-20s %s\n", "tau", "k", "score", "method",
+                    "timestamp", "file");
+        auto es = ar.entries();
+        std::sort(es.begin(), es.end(), [](const ArchiveEntry& x, const ArchiveEntry& y) {
+            if (x.tau != y.tau) return x.tau < y.tau;
+            if (x.k != y.k) return x.k < y.k;
+            return x.score > y.score;
+        });
+        for (const auto& e : es)
+            std::printf("%-6g %-6d %9d  %-22s %-20s %s\n", e.tau, e.k, e.score,
+                        e.method.c_str(), e.stamp.c_str(), e.file.c_str());
+        std::printf("\n%zu entries\n", es.size());
+        return 0;
+    }
+
+    if (sub == "best") {
+        std::printf("%-6s %-6s %9s  %-22s %s\n", "tau", "k", "score", "method", "timestamp");
+        int total = 0, missing = 0;
+        for (double tau : A.taus)
+            for (double kd : A.ks) {
+                const ArchiveEntry* e = ar.best(tau, (int)kd);
+                if (!e) { std::printf("%-6g %-6d %9s\n", tau, (int)kd, "-- none --"); ++missing; }
+                else {
+                    std::printf("%-6g %-6d %9d  %-22s %s\n", e->tau, e->k, e->score,
+                                e->method.c_str(), e->stamp.c_str());
+                    total += e->score;
+                }
+            }
+        std::printf("\ntotal serviced across 9 sub-problems: %d%s\n", total,
+                    missing ? "  (INCOMPLETE)" : "");
+        return missing ? 1 : 0;
+    }
+
+    // add / export-submission both need the scene.
+    Scene sc;
+    sc.load_geojson(A.data);
+    sc.build_index(A.cell);
+    Visibility vis(sc);
+
+    if (sub == "add") {
+        struct Pending { double tau; int k; std::vector<Vec2> ants; };
+        std::vector<Pending> pend;
+        if (!A.from_submission.empty()) {
+            std::ifstream in(A.from_submission);
+            if (!in) { std::fprintf(stderr, "cannot open %s\n", A.from_submission.c_str()); return 2; }
+            std::string l1, l2, l3;
+            while (std::getline(in, l1) && std::getline(in, l2) && std::getline(in, l3)) {
+                if (l1.empty()) continue;
+                double tau = 0; int k = 0;
+                if (std::sscanf(l1.c_str(), "%lf,%d", &tau, &k) != 2) continue;
+                pend.push_back({tau, k, parse_coord_line(l2)});
+            }
+        } else if (!A.placement.empty()) {
+            std::ifstream in(A.placement);
+            if (!in) { std::fprintf(stderr, "cannot open %s\n", A.placement.c_str()); return 2; }
+            std::vector<Vec2> ants;
+            double x, y;
+            while (in >> x >> y) ants.push_back({x, y});
+            pend.push_back({A.taus[0], (int)A.ks[0], ants});
+        } else {
+            std::fprintf(stderr, "archive add: need --placement or --from-submission\n");
+            return 2;
+        }
+
+        int added = 0, rejected = 0;
+        for (const Pending& p : pend) {
+            if ((int)p.ants.size() != p.k) {
+                std::printf("REJECT tau=%g k=%d: %zu antennas, expected %d\n", p.tau, p.k,
+                            p.ants.size(), p.k);
+                ++rejected;
+                continue;
+            }
+            // Nothing enters the archive on trust: re-verify exactly, uncapped.
+            Verdict v = verify(sc, vis, p.ants, p.tau, A.claim_epsilon, -1.0);
+            const ArchiveEntry* prev = ar.best(p.tau, p.k);
+            int old = prev ? prev->score : -1;
+            ar.add(p.tau, p.k, v.score, A.method, p.ants);
+            std::printf("added  tau=%-5g k=%-5d score=%-6d method=%-18s %s\n", p.tau, p.k,
+                        v.score, A.method.c_str(),
+                        old < 0 ? "(first)" : (v.score > old ? "NEW BEST" : "not best"));
+            ++added;
+        }
+        std::printf("\n%d added, %d rejected\n", added, rejected);
+        return rejected ? 1 : 0;
+    }
+
+    if (sub == "export-submission") {
+        std::vector<std::tuple<double, int, std::vector<Vec2>, std::vector<int32_t>>> results;
+        int total = 0;
+        std::printf("%-6s %-6s %9s  %-22s %s\n", "tau", "k", "score", "method", "timestamp");
+        for (double tau : A.taus)
+            for (double kd : A.ks) {
+                int k = (int)kd;
+                const ArchiveEntry* e = ar.best(tau, k);
+                if (!e) {
+                    std::fprintf(stderr, "archive: no entry for tau=%g k=%d -- cannot export\n",
+                                 tau, k);
+                    return 2;
+                }
+                auto ants = ar.read_placement(*e);
+                // Claims are never stored; they are re-derived exactly here, so
+                // the file can only ever assert coverage that holds for the
+                // geometry it ships against.
+                Verdict v = verify(sc, vis, ants, tau, A.claim_epsilon, -1.0);
+                if (v.score != e->score)
+                    std::printf("  note tau=%g k=%d: archived %d, re-verified %d\n", tau, k,
+                                e->score, v.score);
+                std::printf("%-6g %-6d %9d  %-22s %s\n", tau, k, v.score, e->method.c_str(),
+                            e->stamp.c_str());
+                total += v.score;
+                results.emplace_back(tau, k, ants, v.claimed);
+            }
+        write_submission(A.out, sc, results);
+        std::printf("\ntotal %d serviced -> %s\n", total, A.out.c_str());
+        return 0;
+    }
+
+    std::fprintf(stderr, "archive: unknown subcommand '%s' "
+                 "(add|best|list|export-submission)\n", sub.c_str());
+    return 2;
+}
+
 int main(int argc, char** argv) {
     Args A;
     if (argc > 1 && argv[1][0] != '-') A.cmd = argv[1];
@@ -694,6 +860,12 @@ int main(int argc, char** argv) {
         else if (a == "--verify-radius") A.verify_radius = std::atof(next().c_str());
         else if (a == "--subset") A.subset = std::atoi(next().c_str());
         else if (a == "--rewrite") A.rewrite = next();
+        else if (a == "--archive") A.archive_dir = next();
+        else if (a == "--archive-add") A.archive_add = true;
+        else if (a == "--claim-epsilon") A.claim_epsilon = std::atof(next().c_str());
+        else if (a == "--method") A.method = next();
+        else if (a == "--placement") A.placement = next();
+        else if (a == "--from-submission") A.from_submission = next();
         else if (a == "--restarts") A.restarts = std::atoi(next().c_str());
         else if (a == "--rcl-eps") A.rcl_eps = std::atof(next().c_str());
         else if (a == "--swap") A.swap_shortlist = std::atoi(next().c_str());
@@ -701,6 +873,10 @@ int main(int argc, char** argv) {
     now_s();
     try {
         if (A.cmd == "bench") return cmd_bench(A);
+        if (A.cmd == "archive") {
+            std::string sub = argc > 2 && argv[2][0] != '-' ? argv[2] : "list";
+            return cmd_archive(A, sub);
+        }
         if (A.cmd == "verify") return cmd_verify(A);
         if (A.cmd == "dump") return cmd_dump(A);
         if (A.cmd == "exact") return cmd_exact(A);
