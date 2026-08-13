@@ -58,7 +58,13 @@ struct Args {
     bool normalise = true;
     unsigned seed = 12345;
     bool archive_add = false;
-    double claim_epsilon = 0.0;   // required margin above tau before claiming
+    // Require a margin above tau before claiming. Measured on the sample: 1e-9
+    // costs 0 claims out of 51,313 -- free insurance against a verifier that
+    // computes coverage a few ulps differently. 1e-6 would cost 671 claims
+    // (1.3%), all in the tau=0.5 blocks where two adjacent edges of a
+    // near-rectangle land within a hair of half the perimeter, so do NOT raise
+    // it to guard against a discrepancy the figure oracle gives no evidence for.
+    double claim_epsilon = 1e-9;
     std::string archive_dir = "archive";
     std::string method = "solve";
     std::string placement;
@@ -835,6 +841,94 @@ static int cmd_archive(const Args& A, const std::string& sub) {
     return 2;
 }
 
+
+// Re-tune the visibility radii on an unseen dataset.
+//
+// FINDINGS.md 5.3 fixed 600 m search / 2500 m verify on the sample, but both are
+// properties of that city's geometry, not theorems. A too-small search radius
+// silently truncates quality and a too-small verify radius silently drops real
+// claims -- neither raises an error. This re-derives both quickly on whatever
+// dataset it is pointed at.
+static int cmd_tune(const Args& A) {
+    Scene sc;
+    sc.load_geojson(A.data);
+    sc.build_index(A.cell);
+    Visibility vis(sc);
+    auto cands = generate_candidates(sc, A.edge_spacing);
+    std::fprintf(stderr, "[tune] %zu buildings, %zu candidates\n", sc.buildings.size(),
+                 cands.size());
+
+    double tau = A.taus[0];
+    int k = (int)A.ks[0];
+    std::printf("probe sub-problem: tau=%g k=%d (no polish, single exponent)\n\n", tau, k);
+
+    // --- search radius ------------------------------------------------------
+    std::printf("%-10s %10s %12s %10s\n", "radius", "score", "precompute", "entries/cand");
+    double best_score = -1, best_r = A.radius;
+    std::vector<std::pair<double, int>> scores;
+    std::vector<double> rs{150, 300, 600, 1000, 1500};
+    for (double r : rs) {
+        double t0 = now_s();
+        ContribOpts co;
+        co.radius = r;
+        co.min_frac = A.min_frac;
+        co.verbose = false;
+        Contribs C = build_contributions(sc, vis, cands, co);
+        double tbuild = now_s() - t0;
+        InvIndex I = build_inverse(sc, C, cands.size());
+        Solver S(sc, cands, C, I, tau, 2.0, A.normalise, true);
+        S.run(Algo::Potential, k, 0.0, A.seed, false);
+        std::vector<Vec2> ants;
+        for (int32_t c : S.picked()) ants.push_back(cands[c].p);
+        Verdict v = verify(sc, vis, ants, tau, A.claim_epsilon, -1.0);
+        std::printf("%-10g %10d %11.1fs %10.1f\n", r, v.score, tbuild,
+                    (double)C.entries() / cands.size());
+        std::fflush(stdout);
+        scores.emplace_back(r, v.score);
+        if (v.score > best_score) { best_score = v.score; best_r = r; }
+    }
+    // Recommend the *knee*, not the maximum: precompute cost grows roughly
+    // quadratically in radius while quality flattens, so the smallest radius
+    // within 2% of the best is the better operating point. Measured on the
+    // sample this picks 1000 m, which beat both 600 m and 1500 m through the
+    // full pipeline on two of the three deciding sub-problems -- whereas
+    // picking the raw maximum would have said 1500 m.
+    for (const auto& rs : scores)
+        if (rs.second >= best_score * 0.98) { best_r = rs.first; break; }
+    std::printf("\n  -> recommended --radius %g  (knee; best was %g at score %d)\n\n",
+                best_r, best_score > 0 ? best_r : best_r, (int)best_score);
+
+    // --- verify radius ------------------------------------------------------
+    ContribOpts co;
+    co.radius = best_r;
+    co.min_frac = A.min_frac;
+    co.verbose = false;
+    Contribs C = build_contributions(sc, vis, cands, co);
+    InvIndex I = build_inverse(sc, C, cands.size());
+    Solver S(sc, cands, C, I, tau, 2.0, A.normalise, true);
+    S.run(Algo::Potential, k, 0.0, A.seed, false);
+    std::vector<Vec2> ants;
+    for (int32_t c : S.picked()) ants.push_back(cands[c].p);
+
+    double t0 = now_s();
+    Verdict exact = verify(sc, vis, ants, tau, A.claim_epsilon, -1.0);
+    double t_exact = now_s() - t0;
+    std::printf("%-14s %10s %10s %10s\n", "verify radius", "score", "vs exact", "sec");
+    std::printf("%-14s %10d %10s %9.2fs\n", "uncapped", exact.score, "--", t_exact);
+    double rec_v = -1;
+    for (double r : {5000.0, 3000.0, 2000.0, 1200.0, 600.0}) {
+        t0 = now_s();
+        Verdict v = verify(sc, vis, ants, tau, A.claim_epsilon, r);
+        double dt = now_s() - t0;
+        std::printf("%-14g %10d %+10d %9.2fs\n", r, v.score, v.score - exact.score, dt);
+        std::fflush(stdout);
+        if (v.score == exact.score) rec_v = r;   // smallest radius still exact
+    }
+    if (rec_v > 0) std::printf("\n  -> recommended --verify-radius %g (matches uncapped)\n", rec_v);
+    else std::printf("\n  -> no capped radius matched uncapped; USE UNCAPPED\n");
+    return 0;
+}
+
 int main(int argc, char** argv) {
     Args A;
     if (argc > 1 && argv[1][0] != '-') A.cmd = argv[1];
@@ -877,6 +971,7 @@ int main(int argc, char** argv) {
             std::string sub = argc > 2 && argv[2][0] != '-' ? argv[2] : "list";
             return cmd_archive(A, sub);
         }
+        if (A.cmd == "tune") return cmd_tune(A);
         if (A.cmd == "verify") return cmd_verify(A);
         if (A.cmd == "dump") return cmd_dump(A);
         if (A.cmd == "exact") return cmd_exact(A);

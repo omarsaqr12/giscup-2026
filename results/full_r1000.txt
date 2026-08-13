@@ -1,0 +1,7 @@
+[load] data/GIS-cup-sample-dataset.geojson
+[load] 12860 buildings, 78727 edges, 0.06s
+[cand] 78727 candidate sites
+[contrib] candidates=78727 entries=2836749 (36.0 per candidate) mem=0.05 GB
+[contrib] 14.51s
+tau    k      pow   price      exact    search     sec note
+0.25   50     8.0   metre       2344      2289     0.8 tuned
