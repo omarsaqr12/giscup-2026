@@ -5,3 +5,30 @@
 [contrib] 14.51s
 tau    k      pow   price      exact    search     sec note
 0.25   50     8.0   metre       2344      2289     0.8 tuned
+0.25   50     8.0   metre       2426      2370   150.2 lns +82
+0.25   50     -     -           2426         -       - archive NEW BEST (was 2373)
+0.25   500    6.0   metre      10282     10245     5.4 tuned
+0.25   500    6.0   metre      10581     10564   151.5 lns +299
+0.25   500    -     -          10581         -       - archive NEW BEST (was 10462)
+0.25   1000   8.0   metre      12724     12717     9.8 tuned
+0.25   1000   8.0   metre      12809     12807   153.0 lns +85
+0.25   1000   -     -          12809         -       - archive NEW BEST (was 12802)
+0.5    50     8.0   metre        728       707     0.7 tuned
+0.5    50     8.0   metre        868       850   150.2 lns +140
+0.5    50     -     -            868         -       - archive NEW BEST (was 848)
+0.5    500    4.0   ant         5541      5487     3.9 tuned
+0.5    500    4.0   ant         6148      6096   151.3 lns +607
+0.5    500    4.0   ant         6149         -       - exact claim +1
+0.5    500    -     -           6148         -       - archive NEW BEST (was 6105)
+0.5    1000   2.5   ant         9544      9477     7.7 tuned
+0.5    1000   2.5   ant        10161     10124   154.7 lns +617
+0.5    1000   -     -          10161         -       - archive NEW BEST (was 10117)
+0.75   50     3.0   metre        249       244     1.8 tuned
+0.75   50     3.0   metre        392       389   150.2 lns +143
+0.75   500    2.0   ant         2352      2342     2.9 tuned
+0.75   500    2.0   ant         2924      2916   151.2 lns +572
+0.75   500    -     -           2924         -       - archive NEW BEST (was 2893)
+0.75   1000   1.5   ant         4665      4655     5.3 tuned
+0.75   1000   1.5   ant         5534      5522   152.3 lns +869
+[out] /dev/null (1430.3s total)
+0.75   1000   -     -           5534         -       - archive NEW BEST (was 5391)
