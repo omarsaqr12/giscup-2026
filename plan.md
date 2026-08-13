@@ -820,22 +820,40 @@ Upload. **Stop.** The last 2.5 hours are reserve, not optimisation time.
 
 ### Memory rule (decide now, not at 03:00)
 
-Measured (§5.14): **0.6 GB at 12,860 buildings, 2.5 GB at 4×, 7.6 GB at 16×** —
-roughly linear, ~0.05 GB per 1,000 buildings at radius 600, and rising with
-radius.
+Measured, including the 4x rehearsal:
+
+| buildings | radius | peak RSS | per 1k |
+|---|---|---|---|
+| 12,860 | 600 | 0.60 GB | 0.047 |
+| 51,440 | 600 | 2.50 GB | 0.049 |
+| 51,440 | 1000 | **2.59 GB** | 0.050 |
+| 205,760 | 600 | 7.60 GB | 0.037 |
 
 ```
-projected_GB ≈ 0.05 × (buildings / 1000) × (radius / 600)²
+projected_GB  ~=  0.05  x  (buildings / 1000)
 ```
+
+Linear in building count and **essentially flat in radius** — 600 m to 1000 m
+moved peak RSS by 3.6% (2.50 → 2.59 GB), because what dominates is the
+contribution map's entry count, which grew only 8% (34.8 → 37.5 entries per
+candidate).
+
+> An earlier draft of this rule carried a `(radius/600)²` term and would have
+> predicted 7.14 GB where 2.59 GB was measured — a 2.8× over-prediction that
+> would have pushed a run-day operator to drop radius for no reason, costing
+> real score (§5.16 measures what radius is worth). The rehearsal existed to
+> catch exactly this class of error, and did.
 
 Against available RAM:
 
 | projection | action |
 |---|---|
 | < 50% | proceed at the tuned radius |
-| 50–75% | drop to the next lower radius in the `tune` table |
-| 75–90% | radius 600, `--min-frac 0.02` |
+| 50–75% | proceed, but do not raise radius above the tuned value |
+| 75–90% | `--min-frac 0.02` (drops small contributions; §5.3 shows the quality cost is slight) |
 | > 90% | solve in two halves by `--tau`, exporting between; the archive makes this safe |
+
+Radius is **not** the memory lever. Reach for `--min-frac` first.
 
 ## 10. Ideas not yet exhausted
 

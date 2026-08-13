@@ -45,3 +45,43 @@ radius          score   precompute entries/cand
 300              6236         4.5s       28.7
 600              6953        21.9s       34.8
 1000             7043        81.9s       37.5
+1500             7182       147.1s       38.5
+
+  -> recommended --radius 1000  (knee; best was 1000 at score 7182)
+
+verify radius       score   vs exact        sec
+uncapped             7043         --      3.39s
+5000                 7043         +0      1.46s
+3000                 7038         -5      0.55s
+2000                 7019        -24      0.22s
+1200                 6916       -127      0.08s
+600                  6046       -997      0.02s
+
+  -> recommended --verify-radius 5000 (matches uncapped)
+  -> radius=1000  verify-radius=5000
+
+[1m=== 4/5  marginal-returns diagnostic (§4.1 of FINDINGS) ===[0m
+  antennas      0-   250:  28.64 buildings/antenna  (score 7159)
+  antennas    250-   500:  20.61 buildings/antenna  (score 12312)
+  antennas    500-  1000:  17.21 buildings/antenna  (score 20919)
+  -> marginal returns decreasing: construction is allocating sanely
+
+[1m=== 5/5  summary ===[0m
+  dataset        /tmp/claude-1001/-home-mohab-Downloads-hiLang/baee9b82-b40f-4746-8a12-6b755987707d/scratchpad/rehearsal.geojson
+  radius         1000
+  verify-radius  5000
+  logs           results/runday/
+
+  GO. Solve with:
+
+    ./giscup solve --data /tmp/claude-1001/-home-mohab-Downloads-hiLang/baee9b82-b40f-4746-8a12-6b755987707d/scratchpad/rehearsal.geojson \
+        --tau <given> --k <given> \
+        --radius 1000 --verify-radius 5000 \
+        --lns-sec <budget> --swap 400 --archive-add --out submission.txt
+
+  then assemble from the archive (never from the run directly):
+
+    ./giscup archive export-submission --data /tmp/claude-1001/-home-mohab-Downloads-hiLang/baee9b82-b40f-4746-8a12-6b755987707d/scratchpad/rehearsal.geojson \
+        --params /tmp/giscup-params.txt --out submission.txt
+    python3 tests/conformance.py submission.txt 9
+    ./giscup verify --data /tmp/claude-1001/-home-mohab-Downloads-hiLang/baee9b82-b40f-4746-8a12-6b755987707d/scratchpad/rehearsal.geojson --out submission.txt
