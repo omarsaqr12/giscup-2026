@@ -1,0 +1,11 @@
+tau	k	score	method	timestamp	file
+0.25	50	2373	focus+ant+2exch,150s	2026-08-13T04:54:15	placements/tau0.25_k50_s2373_1786586055.txt
+0.25	500	10462	focus+ant+2exch,150s	2026-08-13T04:54:15	placements/tau0.25_k500_s10462_1786586055.txt
+0.25	1000	12802	focus+ant+2exch,150s	2026-08-13T04:54:17	placements/tau0.25_k1000_s12802_1786586057.txt
+0.5	50	848	focus+ant+2exch,150s	2026-08-13T04:54:17	placements/tau0.5_k50_s848_1786586057.txt
+0.5	500	6080	focus+ant+2exch,150s	2026-08-13T04:54:18	placements/tau0.5_k500_s6080_1786586058.txt
+0.5	1000	10117	focus+ant+2exch,150s	2026-08-13T04:54:19	placements/tau0.5_k1000_s10117_1786586059.txt
+0.75	50	377	focus+ant+2exch,150s	2026-08-13T04:54:19	placements/tau0.75_k50_s377_1786586059.txt
+0.75	500	2863	focus+ant+2exch,150s	2026-08-13T04:54:20	placements/tau0.75_k500_s2863_1786586060.txt
+0.75	1000	5391	focus+ant+2exch,150s	2026-08-13T04:54:22	placements/tau0.75_k1000_s5391_1786586062.txt
+0.75	50	49	selfcover-DELIBERATELY-WEAK	2026-08-13T04:55:06	placements/tau0.75_k50_s49_1786586106.txt
