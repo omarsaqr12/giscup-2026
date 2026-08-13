@@ -132,9 +132,15 @@ Measured at τ=0.5, k=500, by capping the search radius:
 | service score | 4,132 | 4,524 | **4,731** | 4,725 | 4,707 |
 | precompute | 0.6 s | 1.0 s | 4.7 s | 14.6 s | 31.5 s |
 
-Quality climbs steeply to 600 m and then plateaus, while cost keeps growing
-quadratically. **600 m is the operating point.** Anyone who caps at ~150 m
+Quality climbs steeply to 600 m and then plateaus. Anyone who caps at ~150 m
 because "cities are dense" gives up 13%.
+
+**Superseded — read FINDINGS §5.16.** That measurement used the *metre-priced*
+potential. Under the antenna-priced potential the curve keeps climbing past
+600 m, and 1000 m beats it by 1.2–4.5% on every deciding sub-problem. The
+operating point is now whatever `giscup tune` reports for the dataset in hand,
+and this table is kept only as the record of a constant that was measured
+correctly and then silently invalidated by a change to something else.
 
 ---
 
@@ -708,44 +714,66 @@ The parameters that trade quality for time, in the order to reach for them:
 
 ## 9. Run-day playbook (15–16 Aug)
 
-The whole point of the preceding work is that 15 Aug should be boring.
+Written to be followed at 3 a.m. without judgement calls. Every step is a
+command; nothing here requires deciding anything.
 
-**Before the drop**
-- `make portable && make check` — figure oracle and crosscheck both green.
-- Confirm the source zip builds from clean checkout with no third-party deps.
+### Step 1 — readiness (≈15 min)
 
-**When the dataset lands**
-1. `./giscup verify --data <new>.geojson --out /dev/null` fails fast on a
-   surprise; instead just load it and read the banner: building count, edge
-   count, and any warning about grazing-collinear walls or multi-ring features.
-2. **Confirm the id property name.** The sample uses `"id"`; the loader also
-   accepts `ID`, `building_id`, `fid`, `OBJECTID`, `osm_id` and falls back to
-   1-based ordinals. Getting this wrong invalidates every claimed-building line,
-   so check the first block of the output against the raw file by eye.
-3. **Confirm the submission format** against whatever the organizers publish
-   alongside the data — the page says the exact format will be specified then.
-   `write_submission` is one function; adjust and re-run.
-4. Sanity-run on a 2,000-building crop first. Two minutes, and it catches a
-   pathological CRS or a degenerate geometry before an hour is burnt.
-5. Full run: `./giscup solve --data <new>.geojson --tau <given> --k <given>
-   --radius 600 --lns-sec <budget> --out submission.txt`. If the dataset is large
-   enough that verification dominates, first confirm `--verify-radius 2500`
-   reproduces the uncapped score on one sub-problem (§8), then use it throughout.
-6. `./giscup verify --data <new>.geojson --out submission.txt` — **must** print
-   `SUBMISSION OK` with zero false claims. This is the gate; do not submit
-   without it.
-7. Spend the remaining hours raising `--lns-sec` on the three sub-problems that
-   separate the field (§7), re-verifying each time. Best-so-far is always on
-   disk, so an overrun costs nothing.
+```bash
+make && make check                  # figure oracle + brute-force crosscheck
+bash tools/runday.sh <NEW>.geojson  # inspection, robustness, radii, diagnostic
+```
 
-**Failure modes to watch**
-- Dataset much larger than expected → drop `--radius` to 300 first (costs ~4%),
-  not the polish budget.
-- Memory pressure → raise `--min-frac`; measured to be nearly free up to 0.05.
-- Anything claiming a building it cannot serve → `verify` catches it; never
-  hand-edit the claimed list.
+`runday.sh` prints **GO** or **NO-GO** and the two numbers everything else
+needs: `RADIUS` and `VRAD`. If it prints NO-GO, the problem is named in its
+output — fix that before anything else. Do **not** carry over 1000/3000 from the
+sample: §5.16 is the record of exactly that mistake being made twice.
 
----
+### Step 2 — schedule (1 min)
+
+```bash
+python3 tools/allocate.py <HOURS_LEFT> --precompute <FROM_RUNDAY>     --data <NEW>.geojson --radius <RADIUS> --verify-radius <VRAD>
+```
+
+Prints one `giscup solve` line per sub-problem with polish time weighted by
+measured sensitivity. Run them **in the order printed** — τ=0.75 first, so if
+the clock runs out the cheap saturated blocks are what got skipped.
+
+### Step 3 — solve
+
+Paste the lines. Each carries `--archive-add`, so every run ratchets into the
+archive and **cannot make the submission worse**. Interrupt any of them freely.
+
+If time remains, re-run the deciding sub-problems with a different radius
+(§5.16 found 1000 m best at two of three, 1500 m at the other) or a longer
+`--lns-sec`. Repeats are free: only improvements survive.
+
+### Step 4 — assemble and verify (≈5 min)
+
+```bash
+./giscup archive export-submission --data <NEW>.geojson --out submission.txt
+./giscup verify --data <NEW>.geojson --out submission.txt
+```
+
+Assemble from the **archive**, never from a solve run. The last line must read
+`SUBMISSION OK` with `false=0` and `missed=0` on all nine blocks. If it does
+not, do not submit — `archive best` shows what is available instead.
+
+### Step 5 — package
+
+```bash
+zip -r submission.zip submission.txt src/ tests/ tools/ Makefile README.md
+```
+
+### If something goes wrong
+
+| symptom | action |
+|---|---|
+| `runday.sh` says NO-GO on the id property | loader falls back to sequential ids; check they match the file's own ids before trusting claims |
+| precompute is too slow | lower `--radius`; §5.3/§5.16 give the quality cost |
+| verification is too slow | use the `--verify-radius` from `runday.sh`; never guess it |
+| a solve is killed mid-run | nothing is lost — the archive holds every completed sub-problem |
+| scores look implausibly high | `giscup verify` is the arbiter, not the solver's own report (§5.18) |
 
 ## 10. Ideas not yet exhausted
 

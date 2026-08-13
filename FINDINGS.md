@@ -557,30 +557,149 @@ which is what the capped verify radius of §5.3 addresses.
 
 ---
 
+### 5.15 A verified solution archive — **kept; it paid for itself immediately**
+
+Every placement produced is recorded under `(τ, k)` with its independently
+verified score, the method, and a timestamp. Nothing enters on trust: `archive
+add` re-verifies exactly and uncapped. Claims are never stored — they are
+re-derived at export, so an exported file cannot assert coverage that does not
+hold for the geometry it ships against. The index is append-only: a history, not
+a cache.
+
+Two properties follow. **Ratchet:** the submission is assembled from the archive
+best, never from whatever the last run emitted, so an experiment that comes out
+worse is recorded but cannot reach the submission. Verified by inserting a
+deliberately weak `selfcover` placement (score 49) at (0.75, 50) — `best` stayed
+at 377. **No silent regressions:** §5.12 records an integration that shipped a 7%
+regression from something meant to be a pure maximum, caught only because a
+number had been written down. That bookkeeping is now structural rather than a
+habit.
+
+It earned its keep on the first experiment after it: every radius improvement in
+§5.16 landed automatically, with no manual promotion.
+
+### 5.16 Re-tuning the radii — **the largest gain of this round**
+
+`giscup tune` re-derives both radii on whatever dataset it is given. Pointed at
+the sample, it contradicted two constants this document was carrying.
+
+**Verify radius 2500 was not safe.** 2000 m loses 3 claims; 3000 m is the
+smallest matching uncapped. §5.3 measured 2000 m as exact — for a *different
+placement*.
+
+**Search radius 600 was costing 1.2–4.5% everywhere.** §5.3 established 600 m as
+the plateau using the **metre-priced** potential. The antenna-priced potential of
+§5.5 keeps gaining well past it, and nobody re-measured after changing the
+potential:
+
+| radius | (0.75, 50) | (0.75, 500) | (0.5, 500) |
+|---|---|---|---|
+| 600 | 376 | 2,847 | 6,033 |
+| 1000 | **393** | 2,874 | **6,105** |
+| 1500 | 384 | **2,893** | 6,073 |
+
+All three beat the previous archive bests *despite 60 s of polish against 150 s*.
+`tune` now recommends the **knee** — smallest radius within 2% of the best —
+rather than the maximum, since precompute grows quadratically while quality
+flattens. On the sample that picks 1000 m, which is what won through the full
+pipeline; the raw maximum would have said 1500 m.
+
+The general lesson outlives the number: **a tuned constant is only valid for the
+configuration it was tuned under.** Both of these were measured correctly, then
+silently invalidated by a later change to something else.
+
+Supporting tooling, all exercised: `tools/inspect_dataset.py` (loader quirks, id
+property, ring orientation, lon/lat guard), `tools/runday.sh` (unseen file →
+go/no-go, robustness suite run against *that file* rather than the sample),
+`tools/allocate.py` (budget split by measured relative polish sensitivity —
+(0.75,50) is 31.8%, (0.25,1000) is 1.0%).
+
+`--claim-epsilon` now defaults to **1e-9**, measured across all nine blocks to
+cost **0 claims of 51,313**. 1e-6 would cost 671 (1.31%), all at τ=0.5, so it is
+deliberately not the default — exactly as §4.5 argued.
+
+### 5.17 Beam search construction — **rejected**
+
+2-exchange only repairs pair-blindness after the fact, so the idea was to offer
+the pair *during* construction. Pairs are generated per building from the
+antennas that actually see it (never enumerated over all candidates, which is
+O(|C|²)); extensions are ranked by gain **per antenna** so a pair is not
+preferred merely for spending more budget; sets reached by different orders are
+de-duplicated so the beam stays genuinely diverse.
+
+It passes the correctness gate — ratio 1.00 on all four exact-oracle instances.
+At equal polish budget it loses everywhere:
+
+| τ | k | beam=0 | beam=4 | beam=8 | runtime (0 / 4 / 8) |
+|---|---|---|---|---|---|
+| 0.75 | 50 | **384** | 379 | 381 | 76 s / 110 s / 144 s |
+| 0.50 | 50 | **868** | 861 | 861 | 76 s / 112 s / 149 s |
+| 0.75 | 500 | **2,868** | 2,828 | 2,843 | 80 s / 532 s / 911 s |
+
+Mechanism: the polish already recovers from myopic construction, so at fixed time
+breadth during construction is a worse buy than more polish — and ranking
+*partial* placements by potential is a weak proxy, since a member that looks good
+at step *j* need not be better at *k*. Same shape as the GRASP negative (§5.12):
+diversification during construction does not pay once a strong repair operator
+exists. Default off (`--beam 0`).
+
+### 5.18 Focused MIP with local branching — **dropped: it fails its own gate**
+
+§5.9 killed the LP *as a bound* because fractional `z_b` takes partial credit.
+With `z_b` **binary** the threshold is enforced by integrality, so the same model
+should work as a *solver* — and HiGHS exposes a dual bound that would have
+restored the optimality-gap measurement §7 says was lost. Built with
+`scipy.optimize.milp`, focused to a window with atom pruning, warm-started, with
+Fischetti–Lodi local branching available.
+
+It is wrong. On tiny40 (τ=0.5, k=3), where enumeration gives optimum **20**:
+
+| | serviced |
+|---|---|
+| incumbent (heuristic) | 20 |
+| MIP, 3,103 vars, 222 s | **22** — "dual bound 22.0, gap 0.00%" |
+| the MIP's own placement, scored by the validated engine | **18** |
+
+Two independent implementations — the enumerator and the visibility engine —
+agree against it. The MIP over-counts by 4 buildings on a 40-building instance
+*while reporting a zero optimality gap*. The defect was not located before the
+time box expired.
+
+Dropped per the kill criterion; kept in the tree disabled and labelled, because
+this is the most useful failure of the round: **a method that announces "proven
+optimal" and is quietly wrong is far more dangerous than one that is merely
+weak.** It is also the sharpest justification for the two structural rules
+already in place — the exact-oracle correctness gate, and the archive's refusal
+to admit anything that has not passed `giscup verify`.
+
 ## 6. Final results
 
-Sample dataset, radius 600, verify-radius 2500, 150 s polish per sub-problem,
+Sample dataset, radius 1000, verify-radius 3000, 150 s polish per sub-problem,
 2-exchange enabled, potential and exponent auto-tuned per sub-problem.
 
-| τ | k | selfcover | bundle | truncated | **final** | final/truncated | pricing |
-|---|---|---|---|---|---|---|---|
-| 0.25 | 50 | 522 | 619 | 2,104 | **2,373** | 1.13 | metre |
-| 0.25 | 500 | 3,464 | 4,725 | 9,705 | **10,462** | 1.08 | metre |
-| 0.25 | 1000 | 5,906 | 8,444 | 12,525 | **12,802** | 1.02 | metre |
-| 0.50 | 50 | 194 | 215 | 469 | **848** | 1.81 | antenna |
-| 0.50 | 500 | 2,166 | 2,434 | 4,731 | **6,080** | 1.29 | antenna |
-| 0.50 | 1000 | 4,258 | 5,117 | 8,971 | **10,117** | 1.13 | antenna |
-| 0.75 | 50 | 49 | 104 | 70 | **377** | 5.39 | antenna |
-| 0.75 | 500 | 698 | 1,070 | 1,262 | **2,863** | 2.27 | antenna |
-| 0.75 | 1000 | 1,395 | 2,381 | 3,398 | **5,391** | 1.59 | antenna |
+| τ | k | truncated | prev (r=600) | **now (r=1000)** | Δ | now/truncated |
+|---|---|---|---|---|---|---|
+| 0.25 | 50 | 2,104 | 2,373 | **2,426** | +2.2% | 1.15 |
+| 0.25 | 500 | 9,705 | 10,462 | **10,581** | +1.1% | 1.09 |
+| 0.25 | 1000 | 12,525 | 12,802 | **12,809** | +0.1% | 1.02 |
+| 0.50 | 50 | 469 | 848 | **868** | +2.4% | 1.85 |
+| 0.50 | 500 | 4,731 | 6,080 | **6,148** | +1.1% | 1.30 |
+| 0.50 | 1000 | 8,971 | 10,117 | **10,161** | +0.4% | 1.13 |
+| 0.75 | 50 | 70 | 377 | **393** | +4.2% | 5.61 |
+| 0.75 | 500 | 1,262 | 2,863 | **2,924** | +2.1% | 2.32 |
+| 0.75 | 1000 | 3,398 | 5,391 | **5,534** | +2.7% | 1.63 |
+
+Total serviced across the nine: **51,844** (was 51,313 at radius 600). The `Δ`
+column is the radius re-tuning of §5.16 alone — no algorithmic change.
 
 Under the competition's relative scoring, a `truncated` submission would earn
-**6.27 / 9** against ours.
+**6.18 / 9** against ours.
 
 **How to read that number honestly:** it measures how much the later work added
-over our own earlier baseline. It is *not* evidence that 5,391 is near-optimal at
+over our own earlier baseline. It is *not* evidence that 5,534 is near-optimal at
 (0.75, 1000) — §5.9 showed the obvious way to establish that does not work, and
-§5.11's oracle stops at k=3.
+§5.11's oracle stops at k=3 and §5.18's attempt to replace it produced a
+confidently wrong answer.
 
 Tuned configuration per sub-problem:
 
@@ -595,7 +714,7 @@ buildings start needing more than one antenna.
 
 ### Where the competition is decided
 
-τ=0.25 is nearly saturated — **12,802 of 12,860 at k=1000 (99.5%)** — and will
+τ=0.25 is nearly saturated — **12,809 of 12,860 at k=1000 (99.6%)** — and will
 likely be a near-tie across serious entries, worth almost nothing
 competitively. The sub-problems that separate the field are **(0.75, 50)**,
 **(0.75, 500)** and **(0.75, 1000)**, where method choice swings the score
@@ -605,24 +724,26 @@ competitively. The sub-problems that separate the field are **(0.75, 50)**,
 
 ## 7. What is still open
 
-1. **The oracle has run out of resolution.** 2-exchange now solves every
-   verifiable instance exactly, so the tiny-instance test can no longer see any
-   gap — which is *not* the same as being optimal at k=1000. Extending
-   exhaustive verification to k=4–5 by branch and bound would restore the
-   measurement. Without it there is no longer any signal saying whether more
-   search pays.
-2. **3-exchange, or a smarter shortlist.** The natural next move if the oracle
-   is restored and still shows a gap.
+1. **There is still no trustworthy optimality gap.** 2-exchange saturated the
+   k≤3 oracle (§5.13) and the MIP built to replace it returned a confidently
+   wrong answer (§5.18). The remaining route is a bespoke k=4–5 branch and bound
+   built **over the validated visibility engine** rather than over a separate
+   model — the lesson of §5.18 being that a second model is a second thing that
+   can be wrong.
+2. **Locate the MIP defect, or delete the tool.** It is disabled, but a wrong
+   solver in the tree is a liability if someone later trusts its dual bound.
 3. **2-exchange costs a hair at saturated τ** — (0.25, 500) came out 10,462
-   against 10,466 without it, by spending polish budget where almost every
-   building is already serviced. Harmless, but argues for making `--swap`
+   against 10,466 without it. Harmless, but argues for making `--swap`
    τ-conditional.
-4. **Re-run the marginal-returns diagnostic (§5.6)** on the final configuration.
-   It is cheap and it is the only remaining signal that needs no oracle.
-5. **Re-run the robustness suite against the real dataset**, not against
-   mutations of the sample, the moment it lands.
-
----
+4. **Radius should be re-tuned per sub-problem, not globally.** §5.16 found 1000 m
+   best at (0.75,50) and (0.5,500) but 1500 m best at (0.75,500). Since scoring is
+   per sub-problem and the archive ratchets, running both and keeping the winner
+   costs nothing but time.
+5. **Re-run `tools/runday.sh` against the real dataset** the moment it lands —
+   against *it*, not against mutations of the sample.
+6. **Task 4 (Lagrangian completion pricing) was not reached.** §5.5's `reach_b` is
+   a one-antenna approximation of a multi-antenna completion; replacing it with an
+   exact per-building set-cover is the untried idea with the clearest rationale.
 
 ## 8. Reproducing everything here
 
