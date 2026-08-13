@@ -35,7 +35,8 @@
 namespace gc {
 
 enum class Algo { SelfCover, Truncated, Bundle, BundleLNS, Potential, PotentialLNS,
-                  Focus, FocusLNS, CostAware, CostAwareLNS, Beam, BeamLNS };
+                  Focus, FocusLNS, CostAware, CostAwareLNS, Beam, BeamLNS,
+                  Lagrangian, LagrangianLNS };
 
 inline const char* algo_name(Algo a) {
     switch (a) {
@@ -51,6 +52,8 @@ inline const char* algo_name(Algo a) {
         case Algo::CostAwareLNS: return "costaware+lns";
         case Algo::Beam: return "beam";
         case Algo::BeamLNS: return "beam+lns";
+        case Algo::Lagrangian: return "lagrangian";
+        case Algo::LagrangianLNS: return "lagrangian+lns";
     }
     return "?";
 }
@@ -226,6 +229,7 @@ public:
 
     void run(Algo algo, int k, double time_budget_sec, unsigned seed, bool verbose);
     void set_beam(int width, int ns, int np) { beam_w_ = width; beam_single_ = ns; beam_pair_ = np; }
+    void set_reach_from_bundles(bool on) { reach_from_bundles_ = on; }
 
     // Recompute coverage from scratch for the current pick set.
     void rebuild();
@@ -236,6 +240,8 @@ private:
     void run_selfcover(int k, bool verbose);
     void run_focus(int k, bool verbose);
     void run_beam(int k, bool verbose);
+    void run_lagrangian(int k, bool verbose);
+    void rebuild_reach_from_bundles();
     bool two_exchange_pass(int shortlist);
     void withdraw(int32_t c);
     int lns(int k, double time_budget_sec, unsigned seed, bool verbose,
@@ -261,6 +267,7 @@ private:
     std::vector<double> target_;
     std::vector<double> reach_;
     int beam_w_ = 4, beam_single_ = 24, beam_pair_ = 24;
+    bool reach_from_bundles_ = false;
     bool two_exchange_on_ = false;
     int two_exchange_shortlist_ = 400;
     double rcl_eps_ = 0.0;   // randomised greedy: accept any gain within (1-eps) of best
@@ -789,6 +796,107 @@ inline void Solver::run_beam(int k, bool verbose) {
                      forks, pairs_taken, score_);
 }
 
+
+// Task 4, part 1: a multi-antenna exchange rate.
+//
+// The antenna-priced potential (FINDINGS 5.5) converts metres to antennas via
+// reach_b = the largest slice any *single* antenna delivers. That is optimistic
+// whenever a building actually needs two or three: the second and third antenna
+// each deliver less than the first, because the easy facade is already taken.
+//
+// Replace it with the rate implied by the building's actual cheapest completion:
+// if the cheapest set that lifts b to tau has m antennas, the honest per-antenna
+// rate is tau*P_b / m. On this dataset 74.8% of buildings need two or more at
+// tau=0.75 (3.1), so the correction is not a detail there.
+inline void Solver::rebuild_reach_from_bundles() {
+    size_t nb = sc_.buildings.size();
+    std::vector<int> cost(nb, -1);
+#pragma omp parallel
+    {
+        std::vector<int32_t> bundle;
+#pragma omp for schedule(dynamic, 64)
+        for (long long b = 0; b < (long long)nb; ++b)
+            cost[b] = completion_bundle((int32_t)b, bundle, 8);
+    }
+    for (size_t b = 0; b < nb; ++b)
+        if (cost[b] > 1) reach_[b] = target_[b] / cost[b];   // cost 1 already exact
+}
+
+// Task 4, part 2: Lagrangian completion pricing.
+//
+// Dualise the budget sum(y) <= k with a price lambda per antenna. Each building
+// then answers independently: "is my cheapest completion worth buying at this
+// price?" -- worth it when 1 - lambda*c_b > 0, i.e. c_b < 1/lambda. Sweep lambda
+// until the union of the accepted bundles fits the budget.
+//
+// This differs from the ratio greedy of 5.4 in where the sharing comes from. The
+// ratio greedy picks buildings sequentially by locally-cheapest marginal cost,
+// so it never sees the antenna that is mediocre for any one building and
+// excellent for twenty. Here every building bids at the same price and the
+// *union* discovers the shared antennas by itself. It also respects the
+// threshold natively: a building is completed or it is not, and partial
+// coverage earns nothing, which is the opposite bias to truncated-greedy.
+inline void Solver::run_lagrangian(int k, bool verbose) {
+    size_t nb = sc_.buildings.size();
+    std::vector<std::vector<int32_t>> bundle(nb);
+    std::vector<int> cost(nb, -1);
+    const int CAP = 6;
+
+    reset();
+#pragma omp parallel
+    {
+        std::vector<int32_t> b2;
+#pragma omp for schedule(dynamic, 64)
+        for (long long b = 0; b < (long long)nb; ++b) {
+            int c = completion_bundle((int32_t)b, b2, CAP);
+            if (c > 0) { cost[b] = c; bundle[b] = b2; }
+        }
+    }
+
+    // Sweep the price downward. Integer costs make the sweep discrete: at each
+    // level admit every building of that cost, cheapest first, stopping the
+    // moment the union would exceed the budget. Within a level, prefer the
+    // buildings whose bundles overlap what is already bought -- that is the
+    // sharing the dual is supposed to expose.
+    std::vector<char> taken(cands_.size(), 0);
+    int used = 0, admitted = 0;
+    for (int level = 1; level <= CAP && used < k; ++level) {
+        std::vector<int32_t> tier;
+        for (size_t b = 0; b < nb; ++b) if (cost[b] == level) tier.push_back((int32_t)b);
+        // Order by marginal cost against what is already bought.
+        bool progress = true;
+        while (progress && used < k) {
+            progress = false;
+            int best_b = -1, best_marg = INT32_MAX;
+            for (int32_t b : tier) {
+                if (b < 0 || serviced_[b]) continue;
+                int marg = 0;
+                for (int32_t c : bundle[b]) if (!taken[c]) ++marg;
+                if (marg > 0 && marg < best_marg && used + marg <= k) {
+                    best_marg = marg; best_b = b;
+                }
+            }
+            if (best_b < 0) break;
+            for (int32_t c : bundle[best_b]) {
+                if (taken[c]) continue;
+                taken[c] = 1;
+                apply(c);
+                ++used;
+            }
+            ++admitted;
+            progress = true;
+            for (auto& x : tier) if (x == best_b) x = -1;
+        }
+    }
+
+    // Any budget the price sweep could not spend goes to the ordinary greedy,
+    // which is better than leaving antennas unplaced.
+    if ((int)picked_.size() < k) run_greedy(k, false);
+    if (verbose)
+        std::fprintf(stderr, "[lagrangian] tau=%.2f k=%d admitted=%d antennas=%zu score=%d\n",
+                     tau_, k, admitted, picked_.size(), score_);
+}
+
 inline void Solver::rebuild() {
     for (auto& a : cov_) a.clear();
     std::fill(serviced_.begin(), serviced_.end(), 0);
@@ -912,6 +1020,17 @@ inline void Solver::run(Algo algo, int k, double time_budget_sec, unsigned seed,
             break;
         case Algo::Focus: run_focus(k, verbose); break;
         case Algo::Beam: run_beam(k, verbose); break;
+        case Algo::Lagrangian:
+            if (reach_from_bundles_) rebuild_reach_from_bundles();
+            run_lagrangian(k, verbose);
+            break;
+        case Algo::LagrangianLNS: {
+            if (reach_from_bundles_) rebuild_reach_from_bundles();
+            run_lagrangian(k, verbose);
+            std::vector<char> full(active_.size(), 1);
+            lns(k, time_budget_sec, seed, verbose, full);
+            break;
+        }
         case Algo::BeamLNS: {
             run_beam(k, verbose);
             std::vector<char> full(active_.size(), 1);
