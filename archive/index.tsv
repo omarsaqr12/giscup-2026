@@ -34,3 +34,5 @@ tau	k	score	method	timestamp	file
 0.75	500	2868	focus+lns,p2.0,ant,lns60s,swap	2026-08-13T05:48:44	placements/tau0.75_k500_s2868_1786589324.txt
 0.75	500	2924	focus+lns,p2.0,ant,lns150s,swap	2026-08-13T05:50:18	placements/tau0.75_k500_s2924_1786589418.txt
 0.75	1000	5534	focus+lns,p1.5,ant,lns150s,swap	2026-08-13T05:52:58	placements/tau0.75_k1000_s5534_1786589578.txt
+0.75	500	2828	beam+lns,p2.0,ant,lns60s,swap	2026-08-13T05:57:36	placements/tau0.75_k500_s2828_1786589856.txt
+0.75	500	2843	beam+lns,p2.0,ant,lns60s,swap	2026-08-13T06:12:47	placements/tau0.75_k500_s2843_1786590767.txt
