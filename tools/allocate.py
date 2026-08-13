@@ -1,90 +1,122 @@
 #!/usr/bin/env python3
-"""Allocate a wall-clock budget across the nine sub-problems, and emit the runbook.
+"""Allocate a wall-clock budget across the sub-problems, from measured variance.
 
-Scoring is `ours / best` summed over nine independently scored sub-problems, so a
-second of polish is worth what it buys in *relative* score, not in buildings. The
-weights below are therefore the measured relative gain the polish delivered per
-sub-problem on the sample (FINDINGS.md §6 run, `lns +N` column over final score),
-not a guess:
+Scoring is `ours / best` summed over independently scored sub-problems, so a
+second of polish is worth what it buys in *relative* score. The split must
+therefore follow how much each block actually responds to effort.
 
-    (0.75,   50)  +120 / 377    = 31.8%      <- most sensitive
-    (0.75,  500)  +539 / 2863   = 18.8%
-    (0.50,   50)  +165 / 846    = 19.5%
-    (0.75, 1000)  +714 / 5391   = 13.2%
-    (0.50,  500)  +631 / 6075   = 10.4%
-    (0.50, 1000)  +660 / 10116  =  6.5%
-    (0.25,   50)   +82 / 2371   =  3.5%
-    (0.25,  500)  +267 / 10461  =  2.6%
-    (0.25, 1000)  +123 / 12802  =  1.0%      <- near-saturated, worth little
+Earlier versions hardcoded that response from the sample's nine blocks. That was
+a latent trap: the contest publishes its own tau and k values, and a table keyed
+to 0.25/0.5/0.75 x 50/500/1000 silently mis-allocates the entire window if the
+real values differ. Weights are now *derived*, from a cheap two-point probe of
+whatever blocks are handed to it:
 
-The pattern is the one §6 predicts: τ=0.25 is ~99.5% saturated and will be a
-near-tie across serious entries, so it is where you spend least.
+    weight(block) = (polished - cheap) / polished
 
-    python3 tools/allocate.py HOURS [--precompute SEC] [--tau ...] [--k ...]
+i.e. the fraction of the block's score that came from spending time on it. A
+near-saturated block responds barely at all and is cheap to serve; a block where
+method choice swings the answer responds strongly and earns the clock.
+
+    python3 tools/allocate.py HOURS --params canonical.txt [--variance probe.tsv]
+
+`probe.tsv` is `tau<TAB>k<TAB>cheap<TAB>polished`, produced by
+`tools/runday.sh` (it runs the probe as part of readiness). Without it, the
+allocator falls back to an equal split and says so -- it will not invent a
+prior.
 """
 import argparse
 import sys
 
-# Measured relative polish gain (see docstring). Re-derive on the real dataset
-# if its saturation profile differs -- `tools/runday.sh` reports enough to tell.
-WEIGHT = {
-    (0.25, 50): 3.5, (0.25, 500): 2.6, (0.25, 1000): 1.0,
-    (0.50, 50): 19.5, (0.50, 500): 10.4, (0.50, 1000): 6.5,
-    (0.75, 50): 31.8, (0.75, 500): 18.8, (0.75, 1000): 13.2,
-}
-MIN_POLISH = 30.0     # below this the polish barely gets a destroy-repair round in
-TUNE_OVERHEAD = 25.0  # exponent sweep + finalists, per sub-problem, order of
+MIN_POLISH = 30.0
+TUNE_OVERHEAD = 25.0
+
+
+def load_blocks(path):
+    out = []
+    for line in open(path):
+        parts = line.split()
+        if len(parts) >= 2:
+            out.append((float(parts[0]), int(float(parts[1]))))
+    return out
+
+
+def load_variance(path):
+    w = {}
+    for line in open(path):
+        if line.startswith("#"):
+            continue
+        f = line.replace("\t", " ").split()
+        if len(f) < 4:
+            continue
+        tau, k, cheap, pol = float(f[0]), int(float(f[1])), float(f[2]), float(f[3])
+        w[(tau, k)] = max(0.0, (pol - cheap) / pol) if pol > 0 else 0.0
+    return w
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("hours", type=float)
-    ap.add_argument("--precompute", type=float, default=300.0,
-                    help="seconds for the shared contribution map (scales with dataset size)")
-    ap.add_argument("--reserve", type=float, default=0.25,
-                    help="fraction held back for export, verification and mistakes")
+    ap.add_argument("--params", required=True, help="canonical 'tau k' per line")
+    ap.add_argument("--variance", help="tau k cheap polished, per block")
+    ap.add_argument("--precompute", type=float, default=300.0)
+    ap.add_argument("--reserve", type=float, default=0.25)
     ap.add_argument("--data", default="<DATA>")
     ap.add_argument("--radius", default="<RADIUS>")
     ap.add_argument("--verify-radius", default="<VRAD>")
     a = ap.parse_args()
 
+    blocks = load_blocks(a.params)
+    if not blocks:
+        print("no blocks in params file", file=sys.stderr)
+        return 2
+
+    if a.variance:
+        w = load_variance(a.variance)
+        missing = [b for b in blocks if b not in w]
+        if missing:
+            print(f"variance file is missing {len(missing)} block(s): {missing}", file=sys.stderr)
+            return 2
+        source = "measured"
+    else:
+        w = {b: 1.0 for b in blocks}
+        source = "EQUAL SPLIT (no --variance given; no prior assumed)"
+
+    floor = max(w.values()) * 0.02 if max(w.values()) > 0 else 1.0
+    w = {b: max(v, floor) for b, v in w.items()}
+
     total = a.hours * 3600
     reserve = total * a.reserve
-    usable = total - reserve - a.precompute - TUNE_OVERHEAD * 9
+    usable = total - reserve - a.precompute - TUNE_OVERHEAD * len(blocks)
     if usable <= 0:
-        print(f"budget too small: {a.hours}h leaves nothing after "
-              f"{a.precompute:.0f}s precompute + {reserve:.0f}s reserve")
+        print(f"budget too small: {a.hours}h leaves nothing after precompute + reserve")
         return 1
 
-    wsum = sum(WEIGHT.values())
-    alloc = {kk: max(MIN_POLISH, usable * w / wsum) for kk, w in WEIGHT.items()}
-    # Renormalise after the floor, so the floors do not silently overspend.
+    wsum = sum(w.values())
+    alloc = {b: max(MIN_POLISH, usable * w[b] / wsum) for b in blocks}
     over = sum(alloc.values()) - usable
     if over > 0:
-        free = {kk: v for kk, v in alloc.items() if v > MIN_POLISH}
-        fsum = sum(free.values())
-        for kk in free:
-            alloc[kk] = max(MIN_POLISH, alloc[kk] - over * alloc[kk] / fsum)
+        free = {b: v for b, v in alloc.items() if v > MIN_POLISH}
+        fsum = sum(free.values()) or 1.0
+        for b in free:
+            alloc[b] = max(MIN_POLISH, alloc[b] - over * alloc[b] / fsum)
 
-    print(f"budget            {a.hours:.1f} h  ({total:,.0f}s)")
-    print(f"  reserve         {reserve:,.0f}s  ({a.reserve*100:.0f}% for export, verify, mistakes)")
-    print(f"  precompute      {a.precompute:,.0f}s  (shared by all nine)")
-    print(f"  tuning overhead {TUNE_OVERHEAD*9:,.0f}s")
-    print(f"  polish budget   {usable:,.0f}s\n")
-    print(f"{'tau':<6}{'k':<7}{'weight':>8}{'polish':>10}")
-    for (tau, k), w in sorted(WEIGHT.items(), key=lambda x: -x[1]):
-        print(f"{tau:<6}{k:<7}{w:>7.1f}%{alloc[(tau,k)]:>9.0f}s")
-    print(f"{'':<13}{'':>8}{sum(alloc.values()):>9.0f}s total\n")
-
-    print("# runbook -- one line per sub-problem, each ratcheting into the archive")
-    for (tau, k) in sorted(alloc, key=lambda x: (x[0], x[1])):
-        print(f"./giscup solve --data {a.data} --tau {tau} --k {k} \\\n"
+    print(f"budget          {a.hours:.1f} h ({total:,.0f}s)   weights: {source}")
+    print(f"  reserve       {reserve:,.0f}s   precompute {a.precompute:,.0f}s   "
+          f"tuning {TUNE_OVERHEAD*len(blocks):,.0f}s")
+    print(f"  polish        {usable:,.0f}s over {len(blocks)} blocks\n")
+    print(f"{'tau':<8}{'k':<8}{'weight':>9}{'polish':>10}")
+    for b in sorted(blocks, key=lambda x: -w[x]):
+        print(f"{b[0]:<8g}{b[1]:<8d}{w[b]*100:>8.1f}%{alloc[b]:>9.0f}s")
+    print()
+    print("# runbook -- each line ratchets into the archive; safe to interrupt")
+    for b in sorted(blocks, key=lambda x: -w[x]):
+        print(f"./giscup solve --data {a.data} --tau {b[0]:g} --k {b[1]} \\\n"
               f"    --radius {a.radius} --verify-radius {a.verify_radius} \\\n"
-              f"    --lns-sec {alloc[(tau,k)]:.0f} --swap 400 --archive-add \\\n"
-              f"    --method 'runday' --out /dev/null")
-    print(f"\n# assemble from archive best, never from the last run")
-    print(f"./giscup archive export-submission --data {a.data} --out submission.txt")
-    print(f"./giscup verify --data {a.data} --out submission.txt")
+              f"    --lns-sec {alloc[b]:.0f} --swap 400 --archive-add "
+              f"--method runday --out /dev/null")
+    print(f"\n./giscup archive export-submission --data {a.data} "
+          f"--params {a.params} --out submission.txt")
+    print(f"python3 tests/conformance.py submission.txt {len(blocks)}")
     return 0
 
 

@@ -65,6 +65,7 @@ struct Args {
     // near-rectangle land within a hair of half the perimeter, so do NOT raise
     // it to guard against a discrepancy the figure oracle gives no evidence for.
     double claim_epsilon = 1e-9;
+    std::string params_file;
     std::string archive_dir = "archive";
     std::string method = "solve";
     std::string placement;
@@ -986,6 +987,7 @@ int main(int argc, char** argv) {
         else if (a == "--verify-radius") A.verify_radius = std::atof(next().c_str());
         else if (a == "--subset") A.subset = std::atoi(next().c_str());
         else if (a == "--rewrite") A.rewrite = next();
+        else if (a == "--params") A.params_file = next();
         else if (a == "--archive") A.archive_dir = next();
         else if (a == "--archive-add") A.archive_add = true;
         else if (a == "--claim-epsilon") A.claim_epsilon = std::atof(next().c_str());
@@ -999,6 +1001,29 @@ int main(int argc, char** argv) {
         else if (a == "--reach-bundles") A.reach_bundles = true;
         else if (a == "--beam-single") A.beam_single = std::atoi(next().c_str());
         else if (a == "--beam-pairs") A.beam_pairs = std::atoi(next().c_str());
+    }
+    // The nine (tau, k) pairs are RUN-DAY INPUTS, not constants. The sample's
+    // 0.25/0.5/0.75 x 50/500/1000 are examples; the contest publishes its own.
+    // tools/parse_params.py normalises any layout of the organizers' parameters
+    // file into the canonical "tau k" per line that this reads, so there is one
+    // parser and one source of truth.
+    if (!A.params_file.empty()) {
+        std::ifstream pf(A.params_file);
+        if (!pf) { std::fprintf(stderr, "cannot open params file %s\n", A.params_file.c_str()); return 2; }
+        std::vector<double> ts, kk;
+        double t; double kv;
+        while (pf >> t >> kv) {
+            if (std::find(ts.begin(), ts.end(), t) == ts.end()) ts.push_back(t);
+            if (std::find(kk.begin(), kk.end(), kv) == kk.end()) kk.push_back(kv);
+        }
+        if (ts.empty() || kk.empty()) {
+            std::fprintf(stderr, "params file %s yielded no (tau,k) pairs\n", A.params_file.c_str());
+            return 2;
+        }
+        A.taus = ts;
+        A.ks = kk;
+        std::fprintf(stderr, "[params] %zu tau x %zu k = %zu blocks from %s\n",
+                     ts.size(), kk.size(), ts.size() * kk.size(), A.params_file.c_str());
     }
     now_s();
     try {

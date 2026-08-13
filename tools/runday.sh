@@ -12,9 +12,24 @@
 # Reads nothing from the sample. Everything is re-derived from the file given.
 set -uo pipefail
 
-DATA=${1:?usage: runday.sh <dataset.geojson> [probe_tau] [probe_k]}
-PTAU=${2:-0.5}
-PK=${3:-500}
+DATA=${1:?usage: runday.sh <dataset.geojson> [competition-parameters.txt]}
+PARAMS=${2:-}
+
+# The nine (tau, k) pairs are run-day inputs. If the organizers' parameters file
+# is given, it is the single source; the probe block is drawn from it rather
+# than assumed. Falling back to sample values is explicitly announced, because
+# silently assuming them is the failure this guards against.
+if [ -n "$PARAMS" ]; then
+    python3 tools/parse_params.py "$PARAMS" > /tmp/giscup-params.txt || exit 2
+    PTAU=$(head -1 /tmp/giscup-params.txt | awk '{print $1}')
+    PK=$(head -1 /tmp/giscup-params.txt | awk '{print $2}')
+    echo "parameters: $(grep -c . /tmp/giscup-params.txt) blocks from $PARAMS"
+    sed 's/^/    /' /tmp/giscup-params.txt
+else
+    PTAU=0.5; PK=500
+    echo "WARNING: no parameters file given; probing with tau=$PTAU k=$PK."
+    echo "         On run day pass competition-parameters.txt as argument 2."
+fi
 BIN=${BIN:-./giscup}
 LOG=${LOG:-results/runday}
 mkdir -p "$LOG"
@@ -90,7 +105,9 @@ if [ "$FAIL" -eq 0 ]; then
 
   then assemble from the archive (never from the run directly):
 
-    ./giscup archive export-submission --data $DATA --out submission.txt
+    ./giscup archive export-submission --data $DATA \\
+        ${PARAMS:+--params /tmp/giscup-params.txt} --out submission.txt
+    python3 tests/conformance.py submission.txt 9
     ./giscup verify --data $DATA --out submission.txt
 EOF
 else
