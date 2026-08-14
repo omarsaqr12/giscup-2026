@@ -1,20 +1,20 @@
-probe sub-problem: tau=0.35 k=250 (no polish, single exponent)
+probe sub-problem: tau=0.45 k=80 (no polish, single exponent)
 
 radius          score   precompute entries/cand
-150              4624         1.0s       20.2
-300              6236         4.5s       28.7
-600              6953        21.9s       34.8
-1000             7043        81.9s       37.5
-1500             7182       147.1s       38.5
+150              1042         0.5s       20.2
+300              1394         1.9s       28.5
+600              1521         7.5s       34.4
+1000             1587        26.8s       36.8
+1500             1586        63.5s       37.7
 
-  -> recommended --radius 1000  (knee; best was 1000 at score 7182)
+  -> recommended --radius 1000  (knee; best was 1000 at score 1587)
 
 verify radius       score   vs exact        sec
-uncapped             7043         --      3.39s
-5000                 7043         +0      1.46s
-3000                 7038         -5      0.55s
-2000                 7019        -24      0.22s
-1200                 6916       -127      0.08s
-600                  6046       -997      0.02s
+uncapped             1587         --      0.46s
+5000                 1587         +0      0.34s
+3000                 1587         +0      0.17s
+2000                 1585         -2      0.08s
+1200                 1567        -20      0.03s
+600                  1381       -206      0.01s
 
-  -> recommended --verify-radius 5000 (matches uncapped)
+  -> recommended --verify-radius 3000 (matches uncapped)

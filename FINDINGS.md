@@ -796,6 +796,42 @@ winner, write no logic.
 
 Archive total: 51,844 → **52,051**.
 
+### 5.22 Polish-time scaling, and the second rehearsal
+
+**Rehearsal 2 (Task 4 acceptance: two different alien configurations).** 2×
+geometry (25,720 buildings), a **bare-numeric** parameters file rather than a
+labelled one, τ ∈ {0.45, 0.55, 0.95} × k ∈ {80, 400, 1500}. Driven by
+`runday.sh` alone: **9/9 blocks clean, conformance passed, SUBMISSION OK**,
+52,637 serviced, zero manual intervention.
+
+It re-derived radius 1000 / **verify-radius 3000** — different again from
+rehearsal 1's 1000/5000 and from the sample's own values. Three geometries,
+three different verify radii. That is the fourth independent confirmation that
+inheriting a tuned constant is this project's recurring failure mode, and it is
+why the playbook re-derives both on the real file.
+
+**Polish-time scaling** on the τ=0.75 trio, radius 1500, verify 5000:
+
+| τ | k | 150 s | 600 s | 1800 s | 150→600 | 600→1800 |
+|---|---|---|---|---|---|---|
+| 0.75 | 50 | 387 | **397** | 397 | +2.6% | **0** |
+| 0.75 | 500 | 2,923 | 2,944 | **2,964** | +0.7% | +0.7% |
+| 0.75 | 1000 | 5,587 | 5,627 | **5,653** | +0.7% | +0.5% |
+
+Neither branch §7 anticipated. Small `k` **saturates by 600 s** — 12× the clock
+buys literally nothing at (0.75, 50). Larger `k` keeps gaining but at a steeply
+diminishing rate: roughly +0.7% per 4× of time, and still positive at 1800 s.
+
+**Run-day consequence.** Past ~600 s the marginal second is worth more spent on
+a *different* radius/swap variant (§5.21, where the spread between variants at
+one block reaches 12%) than on more polish of the same one. So the allocator
+should cap per-block polish rather than divide the window without bound, and
+push the remainder into the sweep — which the archive already ratchets safely.
+This is the first measurement that tells the run-day schedule what to do with
+hours rather than minutes.
+
+Archive: 52,051 → **52,121**.
+
 ---
 
 ## 6. Final results

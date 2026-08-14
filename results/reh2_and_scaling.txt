@@ -1,0 +1,36 @@
+########## REHEARSAL 2: 2x geometry, bare-numeric params, tau .45/.55/.95 k 80/400/1500
+  dataset        /tmp/claude-1001/-home-mohab-Downloads-hiLang/baee9b82-b40f-4746-8a12-6b755987707d/scratchpad/reh2.geojson
+  radius         1000
+  verify-radius  3000
+  logs           results/runday/
+
+  GO. Solve with:
+
+    ./giscup solve --data /tmp/claude-1001/-home-mohab-Downloads-hiLang/baee9b82-b40f-4746-8a12-6b755987707d/scratchpad/reh2.geojson \
+        --tau <given> --k <given> \
+        --radius 1000 --verify-radius 3000 \
+        --lns-sec <budget> --swap 400 --archive-add --out submission.txt
+
+  then assemble from the archive (never from the run directly):
+
+    ./giscup archive export-submission --data /tmp/claude-1001/-home-mohab-Downloads-hiLang/baee9b82-b40f-4746-8a12-6b755987707d/scratchpad/reh2.geojson \
+        --params /tmp/giscup-params.txt --out submission.txt
+    python3 tests/conformance.py submission.txt 9
+    ./giscup verify --data /tmp/claude-1001/-home-mohab-Downloads-hiLang/baee9b82-b40f-4746-8a12-6b755987707d/scratchpad/reh2.geojson --out submission.txt
+### rehearsal 2 solving at radius=1000 verify=3000
+0.95   400    2.5   ant          980       970     2.0 tuned
+0.95   400    2.5   ant         1357      1349    30.8 lns +377
+0.95   1500   1.5   ant         3786      3773     6.2 tuned
+0.95   1500   1.5   ant         4225      4213    32.6 lns +439
+
+total 52637 serviced -> /tmp/claude-1001/-home-mohab-Downloads-hiLang/baee9b82-b40f-4746-8a12-6b755987707d/scratchpad/reh2_sub.txt
+blocks: 9 (expected 9)
+CONFORMANCE PASSED
+9/9 blocks clean
+SUBMISSION OK
+
+########## TASK 3: polish-time scaling on the tau=0.75 trio
+tau    k          150s     600s    1800s
+0.75   50          387      397      397
+0.75   500        2923     2944     2964
+0.75   1000       5587     5627     5653
