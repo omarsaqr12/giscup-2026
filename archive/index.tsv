@@ -102,3 +102,12 @@ tau	k	score	method	timestamp	file
 0.75	50	281	focus+lns,p2.5,metre,lns150s	2026-08-13T19:10:57	placements/tau0.75_k50_s281_1786637457.txt
 0.75	500	2638	focus+lns,p2.0,ant,lns150s	2026-08-13T19:14:25	placements/tau0.75_k500_s2638_1786637665.txt
 0.75	1000	5078	focus+lns,p1.0,ant,lns150s	2026-08-13T19:17:58	placements/tau0.75_k1000_s5078_1786637878.txt
+0.75	50	387	focus+lns,p3.0,metre,lns150s,swap	2026-08-13T21:28:50	placements/tau0.75_k50_s387_1786645730.txt
+0.75	50	397	focus+lns,p3.0,metre,lns600s,swap	2026-08-13T21:39:18	placements/tau0.75_k50_s397_1786646358.txt
+0.75	50	397	focus+lns,p3.0,metre,lns1800s,swap	2026-08-13T22:09:46	placements/tau0.75_k50_s397_1786648186.txt
+0.75	500	2923	focus+lns,p2.0,ant,lns150s,swap	2026-08-13T22:12:48	placements/tau0.75_k500_s2923_1786648368.txt
+0.75	500	2944	focus+lns,p2.0,ant,lns600s,swap	2026-08-13T22:23:20	placements/tau0.75_k500_s2944_1786649000.txt
+0.75	500	2964	focus+lns,p2.0,ant,lns1800s,swap	2026-08-13T22:53:52	placements/tau0.75_k500_s2964_1786650832.txt
+0.75	1000	5587	focus+lns,p1.5,ant,lns150s,swap	2026-08-13T22:56:58	placements/tau0.75_k1000_s5587_1786651018.txt
+0.75	1000	5627	focus+lns,p1.5,ant,lns600s,swap	2026-08-13T23:07:36	placements/tau0.75_k1000_s5627_1786651656.txt
+0.75	1000	5653	focus+lns,p1.5,ant,lns1800s,swap	2026-08-13T23:38:19	placements/tau0.75_k1000_s5653_1786653499.txt

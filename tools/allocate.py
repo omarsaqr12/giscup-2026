@@ -28,6 +28,11 @@ import argparse
 import sys
 
 MIN_POLISH = 30.0
+# Measured cap (FINDINGS 5.22): polish saturates by ~600 s at small k and yields
+# only ~+0.7% per 4x of time beyond it at large k, while the spread between
+# radius/swap variants at one block reaches 12% (5.21). Past this point the
+# marginal second belongs to tools/radius_sweep.sh, not to more polish.
+POLISH_CAP = 1800.0
 TUNE_OVERHEAD = 25.0
 
 
@@ -92,7 +97,7 @@ def main():
         return 1
 
     wsum = sum(w.values())
-    alloc = {b: max(MIN_POLISH, usable * w[b] / wsum) for b in blocks}
+    alloc = {b: max(MIN_POLISH, min(POLISH_CAP, usable * w[b] / wsum)) for b in blocks}
     over = sum(alloc.values()) - usable
     if over > 0:
         free = {b: v for b, v in alloc.items() if v > MIN_POLISH}
@@ -107,6 +112,12 @@ def main():
     print(f"{'tau':<8}{'k':<8}{'weight':>9}{'polish':>10}")
     for b in sorted(blocks, key=lambda x: -w[x]):
         print(f"{b[0]:<8g}{b[1]:<8d}{w[b]*100:>8.1f}%{alloc[b]:>9.0f}s")
+    spare = usable - sum(alloc.values())
+    if spare > 60:
+        print(f"\n{spare:,.0f}s beyond the per-block polish cap ({POLISH_CAP:.0f}s).")
+        print("Spend it on variants, not depth (FINDINGS 5.21, 5.22):")
+        print(f"  bash tools/radius_sweep.sh {a.data} {a.params} {spare:.0f} "
+              f"1000,1500,2000 600")
     print()
     print("# runbook -- each line ratchets into the archive; safe to interrupt")
     for b in sorted(blocks, key=lambda x: -w[x]):
