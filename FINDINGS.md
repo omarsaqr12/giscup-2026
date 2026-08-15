@@ -832,6 +832,80 @@ hours rather than minutes.
 
 Archive: 52,051 → **52,121**.
 
+### 5.23 Randomised-destroy LNS + plateau moves — **implemented; unproven at scale on this build**
+
+The one construction-independent idea left (cont2.md Task 2). Every construction
+diversifier failed (§5.12, §5.17, §5.19) because the repair recovers from any
+reasonable start, so the remaining lever is diversity *of* the repair. Two moves,
+both behind flags, both default off:
+
+- **`--lns-destroy`** — after the polish converges, ruin ⌈ρk⌉ chosen antennas and
+  rebuild with the tuned greedy, re-polish, keep the best incumbent. ρ cycles
+  over {0.05, 0.10, 0.15} and the operator alternates between a uniform-random
+  slice and a spatial cluster (a random chosen antenna plus its nearest chosen
+  neighbours). This is **coupled multi-antenna replacement** — the one move class
+  nothing in the stack can make: 2-exchange (§5.13) is radius 1, and the destroy
+  in the existing `lns()` only frees antennas *provably holding nothing up*.
+- **`--swap-plateau N`** — the objective is a step function, so strict 2-exchange
+  stalls on its plateaus. Accept up to `N` score-*equal* swaps that strictly raise
+  the truncated secondary measure `Σ_b min(cov_b, τ·P_b)` between strict gains
+  (the bound stops cycling; the secondary rises monotonically within a chain).
+
+**Correctness.** Every candidate is re-verified uncapped before it can enter the
+archive, so the keep-best structure cannot ship an over-claim. Verified directly:
+on tiny70 and the sample the exported claims equal the independently verified
+count with 0 false / 0 missed for every variant. (The `giscup exact` k≤3 oracle
+gate could **not** be run on this Windows/MinGW-6.3 build — the enumerator's
+`static thread_local` scratch segfaults under this compiler; it must be re-run on
+the portable Linux build before the moves are trusted as *search*, as opposed to
+trusted as *safe*, which the re-verification already guarantees.)
+
+**Where it helps — a cheap instance.** tiny70, τ=0.75, k=15, radius 600, 4 s:
+
+| | verified score |
+|---|---|
+| baseline (`--swap 400`) | 50 |
+| `--swap 400 --lns-destroy --swap-plateau 8` | **51** |
+
+The loop escapes a plateau the strict polish cannot: it finds a coupled swap that
+lifts a 51st building over τ, and the uncapped verify confirms all 51.
+
+**Where it loses — the real instance, at equal wall-clock on this build.**
+Sample, (0.75, 50), radius 600, **90 s** each:
+
+| | verified score |
+|---|---|
+| baseline (`--swap 400`) | **368** |
+| `--lns-destroy --swap-plateau 8` | 362 |
+
+−6 at equal wall-clock. The mechanism is the point, and it is a property of *this
+build*, not necessarily of the method: the destroy loop calls the greedy repair
+once per iteration, and greedy repair is the OpenMP-parallel hot path
+(`solvers.hpp` gain scan). This machine's MinGW toolchain **links no OpenMP**
+(no `libpthread`), so every repair runs single-threaded and each destroy
+iteration is expensive — in 90 s the loop completes far fewer iterations than the
+plain 2-exchange gets passes, and iteration count is exactly what the method
+trades on. tiny70 wins *because* its 70-building repair is cheap enough to iterate
+many times even single-threaded; the sample's 12,860-building repair is not, here.
+
+**Verdict.** Kept, default off, **not rejected**: the equal-wall-clock loss is
+confounded by the missing OpenMP, so it is not a fair test of the move. It must be
+re-measured on a multi-threaded build (the portable Linux build, or Kaggle/Colab)
+where greedy repair is ~5–8× faster and the loop gets the iteration budget it is
+designed for. Because the archive ratchets (§5.15), the safe run-day use is simply
+to add `--lns-destroy --swap-plateau 8 --archive-add` as an *extra* variant on the
+high-variance τ=0.75 blocks: it can only raise the submission, never lower it.
+
+Commands:
+```bash
+./giscup solve --data data/GIS-cup-sample-dataset.geojson --tau 0.75 --k 50 \
+    --radius 600 --lns-sec 90 --swap 400 --lns-destroy --swap-plateau 8 \
+    --archive-add --out /dev/null
+```
+
+Archive unchanged by the experiment on this build (the losing sample variant did
+not beat the incumbent; the winning tiny70 variant is not a competition block).
+
 ---
 
 ## 6. Final results
@@ -909,6 +983,12 @@ competitively. The sub-problems that separate the field are **(0.75, 50)**,
    four attempts is that construction is no longer the bottleneck — effort
    belongs in the repair operator, in the radii (§5.16, the only thing that has
    paid this round), or in restoring a trustworthy bound.
+7. **Fairly measure randomised-destroy LNS (§5.23).** It is implemented, correct,
+   and verified, but its one at-scale test ran single-threaded on a build with no
+   OpenMP, where it lost by 6 at (0.75, 50) purely on iteration count. Re-run the
+   `(operator × ρ × budget)` table on the portable multi-threaded build across the
+   three τ=0.75 primaries and the two canaries before deciding keep/reject. Until
+   then it stays a default-off, archive-ratcheted extra variant, not a baseline.
 
 ## 8. Reproducing everything here
 
