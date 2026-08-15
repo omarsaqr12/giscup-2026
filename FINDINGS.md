@@ -948,7 +948,7 @@ lands within 30 of the radius-swept archive best (51,844, §6) by an *independen
 lever. Combining both — archive taking the max over radius × config — is the
 route past 51,844, and is why §5.24 pursues a matured version of this loop.
 
-### 5.24 ALNS and tabu over the converged solution — **ALNS kept (gate-clean); tabu rejected (fails gate)**
+### 5.24 ALNS and tabu over the converged solution — **both rejected: ALNS loses at scale, tabu fails the gate**
 
 cont3.md Tier 2: operate on *converged* solutions. Two metaheuristics were built
 on top of the §5.23 destroy loop, both behind flags, both default off.
@@ -972,12 +972,31 @@ Correctness gate — reaches every k≤3 optimum, ratio 1.00:
 | tiny70 | 0.50 | 3 | 22 | 22 |
 
 On the non-saturated tiny70 (τ=0.75, k=15) it reproduces the §5.23 plateau escape,
-50 → **51**, verify confirming all 51. **At-scale measurement is pending a
-multi-threaded run** — the same reason as §5.23, this dev box links no OpenMP, so
-the primaries/canaries must be taken on Kaggle before ALNS is compared to the
-plain destroy loop. Implemented, gate-clean, and expected to at least match
-`--lns-destroy`; whether the adaptive weights and SA acceptance buy anything over
-it is the open measurement.
+50 → **51**. So it clears the correctness gate — but at scale it **loses**.
+Measured multi-threaded (Kaggle, 4 vCPU, radius 1000, 150 s), against the plain
+baseline and the §5.23 destroy variant on the four blocks the destroy variant won:
+
+| block | baseline | destroy+plateau | **ALNS** |
+|---|---|---|---|
+| (0.75, 500) | 2,852 | **2,897** | 2,856 |
+| (0.75, 1000) | 5,524 | **5,526** | 5,483 |
+| (0.50, 500) | 6,092 | **6,099** | 6,079 |
+| (0.25, 1000) | 12,795 | **12,799** | 12,788 |
+
+ALNS is worst or near-worst on every block — below plain destroy+plateau
+throughout, and below even the bare 2-exchange baseline on three of the four. The
+mechanism is the §5.23 lesson turned up one notch: on a step-function objective
+the point is to *lock in* finished buildings, and the simulated-annealing
+acceptance spends budget wandering into score-decreasing basins it then has to
+climb back out of, so at equal wall-clock it explores worse ground than the greedy
+keep-best destroy loop. The adaptive operator weights do not rescue it — worst-
+removal and cluster rarely out-earn plain uniform destroy here, so the roulette
+converges to roughly what §5.23 already did, minus the budget the SA detours cost.
+**Rejected at scale, default off.** It is the fifth mechanism (with GRASP §5.12,
+beam §5.17, Lagrangian §5.19, tabu below) where added sophistication loses to
+simple destroy-restart with keep-best — §7.6 from a fifth direction. The greedy
+keep-best `--lns-destroy --swap-plateau` of §5.23 remains the repair-diversity
+method of record.
 
 **Tabu (`--tabu N`) — fails the k≤3 gate, rejected as search.** Best-admissible
 2-exchange: at each step take the highest-Δ (out, in) swap even when Δ ≤ 0,
@@ -1089,14 +1108,13 @@ competitively. The sub-problems that separate the field are **(0.75, 50)**,
    and sets a new 150 s high at (0.75,1000)=5,614. Best-of-two exports 51,814
    verified. Kept as a default-off, archive-ratcheted variant. Still owed the
    full `(operator × ρ × budget)` surface and the (0.25,500) canary.
-8. **Mature the repair-side search (§5.24, cont3.md Tier 2).** The destroy loop
-   is greedy keep-best with fixed operator order. Two upgrades are implemented and
-   pending at-scale measurement: **ALNS** (`--alns`) — adaptive operator weights
-   over {uniform, cluster, worst-removal} destroys with a simulated-annealing
-   acceptance that can cross score-decreasing moves — and **tabu search**
-   (`--tabu N`) — best-admissible 2-exchange with a tenure-`N` tabu list and
-   aspiration, the systematic version of what the random destroy hits by luck.
-   Measure both on Kaggle against the §5.23 grid before any keep/reject.
+8. ~~Mature the repair-side search~~ **Measured, both rejected (§5.24).** ALNS
+   (`--alns`) clears the k≤3 gate but loses at scale — below plain
+   destroy+plateau on all four tested blocks. Tabu (`--tabu N`) fails the gate
+   (single-swap pair-blindness). Both default off. The greedy keep-best
+   `--lns-destroy --swap-plateau` of §5.23 stays the repair-diversity method of
+   record; the remaining upside is Tier 1 (per-block radius × config sweep, the
+   route past 51,844) and Tier 3 (the k=4–5 bound), not more repair heuristics.
 
 ## 8. Reproducing everything here
 
