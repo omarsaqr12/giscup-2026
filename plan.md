@@ -883,6 +883,16 @@ worth doing before 15 Aug.
    cheapest candidate that would finish it, and swap it against a provably
    redundant antenna — attacks precisely the (0.75, small k) regime where the
    spread between methods is widest.
+
+   **Partly built (FINDINGS §5.23).** Two opt-in, default-off polish moves now
+   exist: `--lns-destroy` (ruin ρ∈{5,10,15}% of the incumbent, uniform or
+   spatial-cluster, and rebuild — coupled multi-antenna replacement) and
+   `--swap-plateau N` (cross score-equal plateaus by the truncated secondary
+   measure). Correct and verified; it wins on cheap instances but was untested
+   fairly at scale because this dev build links no OpenMP. Run-day use, safe under
+   the ratchet: add `--lns-destroy --swap-plateau 8 --archive-add` as an *extra*
+   variant on the high-variance τ=0.75 blocks once running on a multi-threaded
+   build — it can only raise the submission.
 5. ~~**Edge-interior candidate sites.**~~ **Tested, and the answer is no.**
    Adding candidates every 15 m and every 8 m along edges:
 

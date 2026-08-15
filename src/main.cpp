@@ -81,7 +81,10 @@ struct Args {
     int beam = 0;            // beam width; 0 disables
     int beam_single = 24;
     int beam_pairs = 24;
-    int swap_shortlist = 0;   // 2-exchange addition shortlist; 0 disables  // exponents promoted from the cheap sweep to the focused run
+    int swap_shortlist = 0;   // 2-exchange addition shortlist; 0 disables
+    int swap_passes = 200;    // cap on 2-exchange passes per polish call
+    bool lns_destroy = false; // randomised-destroy LNS (cont2.md Task 2); off by default
+    int swap_plateau = 0;     // plateau-move chain budget; 0 disables
     std::vector<double> powers{1.0, 1.5, 2.0, 2.5, 3.0, 4.0, 6.0, 8.0};
 };
 
@@ -317,7 +320,9 @@ static int cmd_solve(const Args& A) {
                 Solver S(sc, cands, C, I, tau, best_cfg.pw, A.normalise, best_cfg.cost);
                 if (A.beam > 0) S.set_beam(A.beam, A.beam_single, A.beam_pairs);
                 S.set_reach_from_bundles(A.reach_bundles);
-                S.set_two_exchange(A.swap_shortlist > 0, A.swap_shortlist);
+                S.set_two_exchange(A.swap_shortlist > 0, A.swap_shortlist, A.swap_passes);
+                S.set_lns_destroy(A.lns_destroy);
+                S.set_swap_plateau(A.swap_plateau > 0, A.swap_plateau);
                 S.run(polish_algo(A.algo), k, A.lns_sec, A.seed, false);
                 harvest(S, best_cfg);
                 std::printf("%-6g %-6d %-5.1f %-6s %9d %9d %7.1f %s\n", tau, k, best_cfg.pw,
@@ -344,10 +349,12 @@ static int cmd_solve(const Args& A) {
                 // Feed every run into the archive. Experiments can then only
                 // ratchet the submission upward -- a run that comes out worse
                 // than the incumbent is recorded but never exported.
-                char m[128];
-                std::snprintf(m, sizeof m, "%s,p%.1f,%s,lns%gs%s", algo_name(A.algo),
+                char m[160];
+                std::snprintf(m, sizeof m, "%s,p%.1f,%s,lns%gs%s%s%s", algo_name(A.algo),
                               best_cfg.pw, best_cfg.cost ? "ant" : "metre", A.lns_sec,
-                              A.swap_shortlist ? ",swap" : "");
+                              A.swap_shortlist ? ",swap" : "",
+                              A.lns_destroy ? ",ld" : "",
+                              A.swap_plateau ? ",plat" : "");
                 Archive ar(A.archive_dir);
                 ar.load();
                 const ArchiveEntry* prev = ar.best(tau, k);
@@ -997,6 +1004,9 @@ int main(int argc, char** argv) {
         else if (a == "--restarts") A.restarts = std::atoi(next().c_str());
         else if (a == "--rcl-eps") A.rcl_eps = std::atof(next().c_str());
         else if (a == "--swap") A.swap_shortlist = std::atoi(next().c_str());
+        else if (a == "--swap-passes") A.swap_passes = std::atoi(next().c_str());
+        else if (a == "--lns-destroy") A.lns_destroy = true;
+        else if (a == "--swap-plateau") A.swap_plateau = std::atoi(next().c_str());
         else if (a == "--beam") A.beam = std::atoi(next().c_str());
         else if (a == "--reach-bundles") A.reach_bundles = true;
         else if (a == "--beam-single") A.beam_single = std::atoi(next().c_str());

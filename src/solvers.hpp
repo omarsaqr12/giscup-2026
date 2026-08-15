@@ -102,9 +102,23 @@ public:
 
     int score() const { return score_; }
     void set_random(double eps, unsigned seed) { rcl_eps_ = eps; rng_seed_ = seed; }
-    void set_two_exchange(bool on, int shortlist) {
+    void set_two_exchange(bool on, int shortlist, int passes = 200) {
         two_exchange_on_ = on;
         two_exchange_shortlist_ = shortlist;
+        if (passes > 0) two_exchange_passes_ = passes;
+    }
+    // Task 2 (cont2.md): randomised-destroy LNS around the converged incumbent.
+    // Adds diversity *of* the polish, not of construction -- ruin a fraction of
+    // the incumbent and rebuild, which is the coupled multi-antenna replacement
+    // that neither 2-exchange (a radius-1 move) nor the redundant-antenna
+    // destroy of lns() can make. Default off; the intended run-day compute sink.
+    void set_lns_destroy(bool on) { lns_destroy_on_ = on; }
+    // Plateau moves in 2-exchange: accept score-*equal* swaps that raise the
+    // truncated secondary measure sum_b min(cov_b, tau*P_b), with a bounded
+    // chain length between strict improvements to stop cycling. chain<=0 is off.
+    void set_swap_plateau(bool on, int chain) {
+        swap_plateau_on_ = on;
+        swap_plateau_chain_ = chain;
     }
     const std::vector<int32_t>& picked() const { return picked_; }
 
@@ -243,9 +257,17 @@ private:
     void run_lagrangian(int k, bool verbose);
     void rebuild_reach_from_bundles();
     bool two_exchange_pass(int shortlist);
+    // Generalised 2-exchange step: 0 = no move, 1 = strict score gain,
+    // 2 = score-equal plateau move (only when allow_plateau). two_exchange_pass
+    // is the strict-only wrapper, so existing callers are unchanged.
+    int two_exchange_step(int shortlist, bool allow_plateau, double removal_eps);
+    void run_2exchange(std::chrono::steady_clock::time_point t0, double budget);
+    double trunc_add_gain(int32_t c) const;
     void withdraw(int32_t c);
     int lns(int k, double time_budget_sec, unsigned seed, bool verbose,
             const std::vector<char>& mask);
+    int lns_destroy_loop(int k, double time_budget_sec, unsigned seed, bool verbose,
+                         const std::vector<char>& mask);
 
     // Cheapest set of extra candidates that would finish building b, found by
     // greedy set cover over the candidates that see b. Returns cost, or -1 if
@@ -270,6 +292,10 @@ private:
     bool reach_from_bundles_ = false;
     bool two_exchange_on_ = false;
     int two_exchange_shortlist_ = 400;
+    int two_exchange_passes_ = 200;   // cap on 2-exchange passes per polish call
+    bool lns_destroy_on_ = false;
+    bool swap_plateau_on_ = false;
+    int swap_plateau_chain_ = 0;      // max equal-score moves between strict gains
     double rcl_eps_ = 0.0;   // randomised greedy: accept any gain within (1-eps) of best
     unsigned rng_seed_ = 0;
     bool cost_mode_ = false;  // price remaining work in antennas rather than metres
@@ -628,7 +654,36 @@ inline void Solver::withdraw(int32_t c) {
 //
 // Additions are restricted to a shortlist of the currently highest-gain
 // candidates, which keeps a pass at O(k * shortlist) rather than O(k * |C|).
-inline bool Solver::two_exchange_pass(int shortlist) {
+// Secondary progress measure used to break plateaus: the increase in
+// sum_b min(cov_b, tau*P_b) from adding candidate c. Unlike gain() this counts
+// every building c touches, serviced or not, with no convexity -- it is the
+// truncated surrogate's exact marginal, so two placements with the same service
+// score are ordered by how close their *other* buildings sit to the threshold.
+inline double Solver::trunc_add_gain(int32_t c) const {
+    double g = 0;
+    int64_t a = C_.start[c], z = C_.start[c + 1];
+    for (int64_t j = a; j < z;) {
+        int32_t b = C_.bld[j];
+        int64_t e = j;
+        double fresh = 0;
+        while (e < z && C_.bld[e] == b) { fresh += cov_[b].probe(C_.s0[e], C_.s1[e]); ++e; }
+        double T = target_[b];
+        g += std::min(cov_[b].measure + fresh, T) - std::min(cov_[b].measure, T);
+        j = e;
+    }
+    return g;
+}
+
+// One 2-exchange step: withdraw a chosen antenna, put a different one in its
+// place. A strict move (return 1) keeps the swap if the true service score
+// rises -- the pair-blindness repair of FINDINGS 5.13. A plateau move
+// (return 2, only when allow_plateau) keeps a score-*equal* swap that strictly
+// raises the truncated secondary measure, so the polish can cross the flat tops
+// of the step-function objective toward a state one antenna from more finishes.
+//
+// Additions are restricted to a shortlist of the currently highest-gain
+// candidates, which keeps a step at O(k * shortlist) rather than O(k * |C|).
+inline int Solver::two_exchange_step(int shortlist, bool allow_plateau, double removal_eps) {
     // Shortlist: best current marginal gain among unchosen candidates.
     std::vector<std::pair<double, int32_t>> top;
     top.reserve(cands_.size() / 8 + 1);
@@ -644,13 +699,31 @@ inline bool Solver::two_exchange_pass(int shortlist) {
                             const std::pair<double, int32_t>& y) { return x.first > y.first; });
         top.resize(shortlist);
     }
-    if (top.empty()) return false;
+    if (top.empty()) return 0;
 
     std::vector<int32_t> order = picked_;
+    std::vector<std::pair<int32_t, double>> held;   // out's buildings and their pre-withdraw m0
     for (int32_t out : order) {
         if (!chosen_[out]) continue;
         int before = score_;
+
+        // For the plateau branch, record how much truncated coverage this
+        // antenna is the reason for, measured as the drop when it leaves.
+        if (allow_plateau) {
+            held.clear();
+            int64_t a = C_.start[out], z = C_.start[out + 1];
+            for (int64_t j = a; j < z;) {
+                int32_t b = C_.bld[j];
+                int64_t e = j;
+                while (e < z && C_.bld[e] == b) ++e;
+                held.emplace_back(b, std::min(cov_[b].measure, target_[b]));
+                j = e;
+            }
+        }
+
         withdraw(out);
+        int lost = before - score_;
+
         int best_gain = 0;
         int32_t best_in = -1;
         for (const auto& t : top) {
@@ -660,11 +733,55 @@ inline bool Solver::two_exchange_pass(int shortlist) {
         }
         if (best_in >= 0 && score_ + best_gain > before) {
             apply(best_in);
-            return true;                 // first improvement; caller re-runs
+            return 1;                    // strict improvement; caller re-runs
         }
-        apply(out);                      // no improvement, put it back
+
+        if (allow_plateau) {
+            double removal_loss = 0;
+            for (const auto& hb : held)
+                removal_loss += hb.second - std::min(cov_[hb.first].measure, target_[hb.first]);
+            // Accept a score-equal swap only if it strictly raises the secondary
+            // measure net of what leaving `out` cost -- otherwise it is a lateral
+            // move that could cycle. The bounded chain length in run_2exchange is
+            // the second guard.
+            int32_t pin = -1;
+            double pbest = removal_loss + removal_eps;
+            for (const auto& t : top) {
+                if (chosen_[t.second]) continue;
+                if (completions(t.second) != lost) continue;   // net service score unchanged
+                double ag = trunc_add_gain(t.second);
+                if (ag > pbest) { pbest = ag; pin = t.second; }
+            }
+            if (pin >= 0) {
+                apply(pin);
+                return 2;                // score-equal, secondary strictly up
+            }
+        }
+        apply(out);                      // no move; put it back
     }
-    return false;
+    return 0;
+}
+
+inline bool Solver::two_exchange_pass(int shortlist) {
+    return two_exchange_step(shortlist, false, 0.0) == 1;
+}
+
+// Run 2-exchange to convergence (or the deadline), honouring the plateau
+// setting. Strict moves reset the plateau chain; plateau moves extend it up to
+// swap_plateau_chain_, after which a strict move is required to continue.
+inline void Solver::run_2exchange(std::chrono::steady_clock::time_point t0, double budget) {
+    auto left = [&] {
+        return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() < budget;
+    };
+    const int shortlist = two_exchange_shortlist_;
+    const bool plateau = swap_plateau_on_ && swap_plateau_chain_ > 0;
+    int chain = 0, guard = 0;
+    while (left() && guard < two_exchange_passes_) {
+        int r = two_exchange_step(shortlist, plateau && chain < swap_plateau_chain_, 1e-9);
+        if (r == 1) { chain = 0; ++guard; }
+        else if (r == 2) { ++chain; ++guard; }
+        else break;
+    }
 }
 
 
@@ -918,8 +1035,8 @@ inline void Solver::rebuild() {
 
 inline int Solver::lns(int k, double time_budget_sec, unsigned seed, bool verbose,
                        const std::vector<char>& mask) {
+    if (lns_destroy_on_) return lns_destroy_loop(k, time_budget_sec, seed, verbose, mask);
     const bool two_exch = two_exchange_on_;
-    const int shortlist = two_exchange_shortlist_;
     // Large-neighbourhood search: free antennas that provably are not holding
     // any building above threshold, then re-spend the budget with the greedy.
     // Keeps the best solution seen, so it is safe to stop at any time.
@@ -978,10 +1095,7 @@ inline int Solver::lns(int k, double time_budget_sec, unsigned seed, bool verbos
 
         // Interleave 2-exchange: destroy-repair only ever frees antennas that
         // hold nothing up, so a needed-but-wrong antenna is never reconsidered.
-        if (two_exch) {
-            int guard = 0;
-            while (elapsed() < time_budget_sec && two_exchange_pass(shortlist) && ++guard < 200) {}
-        }
+        if (two_exch) run_2exchange(t0, time_budget_sec);
         if (score_ > best_score) {
             best_score = score_;
             best = picked_;
@@ -1000,6 +1114,97 @@ inline int Solver::lns(int k, double time_budget_sec, unsigned seed, bool verbos
     if (verbose)
         std::fprintf(stderr, "[lns] tau=%.2f k=%d rounds=%d improved=%d score=%d\n", tau_, k,
                      rounds, improved, score_);
+    return best_score;
+}
+
+// Randomised-destroy LNS (cont2.md Task 2). Polish the current construction to
+// an incumbent, then repeatedly ruin a fraction of it and rebuild with the
+// tuned greedy. The move class is coupled multi-antenna replacement, which the
+// rest of the stack cannot make: 2-exchange is radius 1, and the destroy in
+// lns() only ever frees antennas provably holding nothing up. Keeps the best
+// seen, so it is safe to stop at any time and only ratchets upward.
+//
+// The sweep is internal: rho cycles over {0.05, 0.10, 0.15} and the operator
+// alternates between a uniform-random slice and a spatial cluster (a random
+// chosen antenna plus its nearest chosen neighbours), so one time-budgeted run
+// covers the whole portfolio the brief specifies -- the intended compute sink.
+inline int Solver::lns_destroy_loop(int k, double time_budget_sec, unsigned seed, bool verbose,
+                                    const std::vector<char>& mask) {
+    auto t0 = std::chrono::steady_clock::now();
+    auto elapsed = [&] {
+        return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    };
+    std::mt19937 rng(seed);
+    active_ = mask;
+
+    // Establish the incumbent by polishing the construction that is already in
+    // picked_ (run_focus / run_greedy ran before lns() was called).
+    if (two_exchange_on_) run_2exchange(t0, time_budget_sec);
+    std::vector<int32_t> best = picked_;
+    int best_score = score_;
+
+    const double rhos[3] = {0.05, 0.10, 0.15};
+    std::vector<char> is_victim(cands_.size(), 0);
+    int iter = 0, improved = 0;
+    while (elapsed() < time_budget_sec && best.size() > 1) {
+        // Restore the incumbent to ruin from.
+        picked_ = best;
+        std::fill(chosen_.begin(), chosen_.end(), 0);
+        for (int32_t c : picked_) chosen_[c] = 1;
+        rebuild();
+
+        double rho = rhos[iter % 3];
+        bool cluster = ((iter / 3) & 1);
+        int nd = std::max(1, (int)std::ceil(rho * (double)picked_.size()));
+        if (nd >= (int)picked_.size()) nd = (int)picked_.size() - 1;
+
+        // --- destroy: choose nd chosen antennas to remove --------------------
+        std::vector<int32_t> victims;
+        victims.reserve(nd);
+        if (!cluster) {
+            std::vector<int32_t> pool = picked_;
+            std::shuffle(pool.begin(), pool.end(), rng);
+            victims.assign(pool.begin(), pool.begin() + nd);
+        } else {
+            int32_t seedc = picked_[rng() % picked_.size()];
+            Vec2 sp = cands_[seedc].p;
+            std::vector<std::pair<double, int32_t>> d;
+            d.reserve(picked_.size());
+            for (int32_t c : picked_) {
+                double dx = cands_[c].p.x - sp.x, dy = cands_[c].p.y - sp.y;
+                d.emplace_back(dx * dx + dy * dy, c);
+            }
+            std::nth_element(d.begin(), d.begin() + nd, d.end(),
+                             [](const std::pair<double, int32_t>& a,
+                                const std::pair<double, int32_t>& b) { return a.first < b.first; });
+            for (int i = 0; i < nd; ++i) victims.push_back(d[i].second);
+        }
+
+        for (int32_t c : victims) is_victim[c] = 1;
+        std::vector<int32_t> keep;
+        keep.reserve(best.size());
+        for (int32_t c : best) if (!is_victim[c]) keep.push_back(c);
+        for (int32_t c : victims) is_victim[c] = 0;
+
+        // --- repair with the tuned greedy, then re-polish --------------------
+        picked_ = keep;
+        std::fill(chosen_.begin(), chosen_.end(), 0);
+        for (int32_t c : picked_) chosen_[c] = 1;
+        rebuild();
+        run_greedy(k, false);
+        if (two_exchange_on_) run_2exchange(t0, time_budget_sec);
+
+        if (score_ > best_score) { best_score = score_; best = picked_; ++improved; }
+        ++iter;
+    }
+
+    picked_ = best;
+    std::fill(chosen_.begin(), chosen_.end(), 0);
+    for (int32_t c : picked_) chosen_[c] = 1;
+    rebuild();
+    if (verbose)
+        std::fprintf(stderr, "[lns-destroy] tau=%.2f k=%d iters=%d improved=%d score=%d\n",
+                     tau_, k, iter, improved, score_);
     return best_score;
 }
 
