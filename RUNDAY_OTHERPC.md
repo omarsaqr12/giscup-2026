@@ -80,12 +80,21 @@ RAW=../evaluator/competition-parameters.txt
 
 ```bash
 python3 tools/parse_params.py "$RAW" > params.txt
-cat params.txt          # expect 9 lines "tau k"
+cat params.txt
 ```
 
-If the parser refuses, it is telling you the file is not a layout it recognises —
-**read the file** and pass values explicitly instead (do not guess); e.g.
-`--tau 0.25,0.5,0.75 --k 50,500,1000` on the solve/export commands below.
+**The released values (confirmed on the evaluator repo) — NOT the sample's:**
+τ ∈ **{0.32, 0.49, 0.68}**, k ∈ **{9, 49, 484}**. `params.txt` should read:
+
+```
+0.32 9     0.32 49     0.32 484
+0.49 9     0.49 49     0.49 484
+0.68 9     0.68 49     0.68 484
+```
+
+If the parser ever refuses a future file, do not guess — read it and pass values
+explicitly instead: add `--tau 0.32,0.49,0.68 --k 9,49,484` to the solve/export
+commands below (and skip `--params`).
 
 ## 5. Readiness check + re-tune radii on the REAL geometry (GO / NO-GO)
 
@@ -198,9 +207,17 @@ gh auth logout --hostname github.com     # don't leave your token on a shared PC
 
 ## Notes
 
-- The eval dataset may be a different size / city than the sample — that is exactly
-  why step 5 re-tunes radii and checks memory on the real file rather than trusting
-  our sample numbers.
+- **The released dataset (measured):** 50,000 buildings (**3.9× the sample**),
+  306,833 vertices, extent 10.6 × 10.8 km, density 438/km², all single-ring
+  Polygons, integer `id` unique, rings CW (loader normalises to CCW) — **no loader
+  quirks, no blocking problems**. Projected precompute ~18 s at radius 600 and
+  **~2.3 GB RAM** — comfortable on this machine, so run large `--lns-sec`.
+- **k is much smaller than the sample** (max 484, and one block is k=9), so every
+  solve is fast and the small-k blocks are where 2-exchange + destroy+plateau
+  matter most (§5.11 pair-blindness bites hardest at small k). The per-block
+  exponent auto-tuner adapts to the real τ/k automatically.
+- The eval dataset may differ from the sample — step 5 re-tunes radii and checks
+  memory on the real file rather than trusting our sample numbers.
 - The i9-11900F has 16 threads; precompute and selection parallelise across them,
   so large `--lns-sec` budgets are cheap here. The 2-exchange polish itself is
   serial, so its runtime is whatever `--lns-sec` you set.

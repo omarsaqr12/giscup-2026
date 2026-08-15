@@ -87,15 +87,29 @@ def parse(text):
 
     # --- explicit pairs, one per line -------------------------------------
     pair_re = re.compile(rf'^\(?\s*({NUM})\s*,\s*({NUM})\s*\)?$')
-    pairs = [pair_re.match(l) for l in lines]
-    if all(pairs):
-        got = [(as_tau(float(m.group(1))), as_k(float(m.group(2)))) for m in pairs]
+    pair_matches = [pair_re.match(l) for l in lines]
+    if all(pair_matches):
+        got = [(as_tau(float(m.group(1))), as_k(float(m.group(2)))) for m in pair_matches]
         taus = sorted({t for t, _ in got})
         ks = sorted({k for _, k in got})
         if len(got) != len(taus) * len(ks):
             fail(f"{len(got)} explicit pairs do not form a complete "
                  f"{len(taus)}x{len(ks)} grid")
         return taus, ks
+
+    # --- explicit pairs embedded in a labelled/prose file -----------------
+    # The organizers' own competition-parameters.txt lists the nine "(tau, k)"
+    # sub-problems, but *after* a labelled summary and a prose header, so not
+    # every line is a pair. Extract the pair lines and, if they form a complete
+    # grid of at least 2x2, use them. A stray "(x, y)" in prose cannot trigger
+    # this -- it would not complete a >=2x2 grid -- so this stays conservative.
+    got = [(as_tau(float(m.group(1))), as_k(float(m.group(2))))
+           for m in pair_matches if m]
+    if got:
+        taus = sorted({t for t, _ in got})
+        ks = sorted({k for _, k in got})
+        if len(got) == len(taus) * len(ks) and len(taus) >= 2 and len(ks) >= 2:
+            return taus, ks
 
     # --- labelled lists ---------------------------------------------------
     taus = ks = None
