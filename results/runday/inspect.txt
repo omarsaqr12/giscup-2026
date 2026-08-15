@@ -1,18 +1,18 @@
-file            /tmp/claude-1001/-home-mohab-Downloads-hiLang/baee9b82-b40f-4746-8a12-6b755987707d/scratchpad/reh2.geojson
+file            ../evaluator/datasets/GIS-cup-competition-dataset.geojson
 type            FeatureCollection
 crs             {"type": "name", "properties": {"name": "urn:ogc:def:crs:EPSG::32611"}}
-features        25,720
-geometry types  {'Polygon': 25720}
-property keys   {'id': 25720}
+features        50,000
+geometry types  {'Polygon': 50000}
+property keys   {'id': 50000}
 id property     'id'  type=int  unique=True
-rings/feature   {1: 25720}
-orientation     {'cw': 25720}  (loader normalises to CCW)
+rings/feature   {1: 50000}
+orientation     {'cw': 50000}  (loader normalises to CCW)
 coordinate dims [2]
-vertices        total 157,454  median 6  max 38
-perimeter (m)   median 62.1  mean 66.8  max 1066.1
-extent          4,946 m x 8,558 m
-density         608 buildings/km^2
+vertices        total 306,833  median 6  max 35
+perimeter (m)   median 60.8  mean 66.0  max 1440.1
+extent          10,607 m x 10,772 m
+density         438 buildings/km^2
 
-scale vs sample 2.0x  (projected precompute ~9s at radius 600, ~1.2 GB)
+scale vs sample 3.9x  (projected precompute ~18s at radius 600, ~2.3 GB)
 
 no blocking problems found

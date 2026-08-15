@@ -1027,6 +1027,52 @@ conclusion, now reached from one more direction.
 
 ---
 
+### 5.25 Run day — the competition dataset (2026)
+
+The evaluation dataset (`GIS-cup-competition-dataset.geojson`) was seen for the
+first time on run day. Every number below is re-derived from that file, not
+inherited from the sample.
+
+**The instance.** 50,000 buildings, 306,833 vertices (median 6, max 35 per
+building), one CW ring each (loader normalises to CCW), integer `id` property,
+unique. CRS EPSG:32611. Extent 10,607 m × 10,772 m, density 438 buildings/km²,
+perimeter median 60.8 m / max 1440.1 m. 3.9× the sample by building count;
+projected precompute ≈ 2.5 GB (memory rule 0.05 GB × buildings/1000), well under
+the 62 GB box — no `--min-frac` needed.
+
+**Parameters.** τ ∈ {0.32, 0.49, 0.68}, k ∈ {9, 49, 484} — the nine sub-problems
+are the full cross product. This is a *small-k* instance relative to the sample's
+50/500/1000: k=9 is near the exact-oracle regime where pair-blindness (§5.11)
+dominates, and k_max=484 < the sample's 1000. `parse_params.py` refused the
+organizers' labelled layout (correctly — it refuses to guess); the nine pairs
+were transcribed literally into an explicit-pairs file it accepts. (Parser since
+taught the organizers' layout directly, commit 54b0c54.)
+
+**GO/NO-GO.** `runday.sh` → GO. Inspection found no loader quirks (ids are the
+file's own, not a sequential fallback); robustness 14/14 against the real file;
+marginal returns *decreasing* (construction allocates sanely, no misallocation to
+chase).
+
+**Radii re-tuned on the real geometry.** The sample's 600/3000 are properties of
+one city, not theorems. Here the tune knee is **`--radius 1500`** (probe score
+201→350→714→948→1073 across radii 150→1500; 1500 wins), and no capped verify
+radius matched the uncapped exact sweep, so **`--verify-radius -1` (uncapped)**.
+Uncapped verify on 50k buildings costs only ≈ 51 s for all nine blocks including
+the k=484 sweep.
+
+**First verified submission (quick seed, `--lns-sec 20`).** dpl and base both fed
+the archive; the archive took the per-block max — dpl won every k ∈ {9, 49}, base
+won all three k=484. Assembled from the archive: 39,231 buildings serviced across
+the nine blocks. `verify` (uncapped): false=0, missed=0, unknown_id=0 on all
+nine. `conformance.py`: 9/9, 0 warnings. Packaged and uploaded early per the
+run-day rule. Per-block scores: (0.32){1201, 3813, 15359}, (0.49){662, 2349,
+9757}, (0.68){180, 968, 4942}.
+
+**Per-block winners after the main sweep:** _(table to follow — radii {1000, 1500,
+2000} × {dpl, base}, GRASP-on-k=9, multi-seed)._
+
+---
+
 ## 6. Final results
 
 Sample dataset, radius 1000, verify-radius 3000, 150 s polish per sub-problem,
