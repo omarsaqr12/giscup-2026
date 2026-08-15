@@ -922,6 +922,90 @@ Commands (the multi-threaded A/B above):
     --lns-destroy --swap-plateau 8 --archive-add --out /dev/null
 ```
 
+**Full nine-block best-of-two (Kaggle, all blocks, radius 1000, 150 s).** Solved
+every block twice — baseline `--swap 400` and `+ --lns-destroy --swap-plateau 8`
+— into the archive, then `export-submission` took the per-block max. The 3-block
+A/B undersold it: the destroy variant wins **four of nine** blocks, including two
+of the three deciding ones.
+
+| τ | k | best score | winner |
+|---|---|---|---|
+| 0.25 | 50 | 2,424 | baseline |
+| 0.25 | 500 | 10,543 | baseline |
+| 0.25 | 1000 | 12,815 | **destroy+plateau** |
+| 0.50 | 50 | 865 | baseline |
+| 0.50 | 500 | 6,129 | **destroy+plateau** |
+| 0.50 | 1000 | 10,126 | baseline |
+| 0.75 | 50 | 391 | baseline |
+| 0.75 | 500 | 2,907 | **destroy+plateau** |
+| 0.75 | 1000 | **5,614** | **destroy+plateau** |
+
+Exported file re-verified end to end: **9/9 blocks, claimed == verified, 0 false,
+0 missed, SUBMISSION OK, 51,814 serviced.** Two things stand out: **(0.75, 1000)
+= 5,614 is a new best at the 150 s budget** — above the r1500-swap 5,587 (§5.21)
+and the r1000 baseline 5,534 (§6) — and the whole file (fixed r1000 + destroy)
+lands within 30 of the radius-swept archive best (51,844, §6) by an *independent*
+lever. Combining both — archive taking the max over radius × config — is the
+route past 51,844, and is why §5.24 pursues a matured version of this loop.
+
+### 5.24 ALNS and tabu over the converged solution — **ALNS kept (gate-clean); tabu rejected (fails gate)**
+
+cont3.md Tier 2: operate on *converged* solutions. Two metaheuristics were built
+on top of the §5.23 destroy loop, both behind flags, both default off.
+
+**ALNS (`--alns`) — matures the §5.23 loop, passes the gate.** Three destroy
+operators — uniform, spatial cluster, and worst-removal (least-critical antennas
+first, by `removal_criticality`) — selected by roulette on weights that adapt to
+which operator has been producing accepted/improving moves (Ropke–Pisinger), plus
+a **simulated-annealing acceptance** so a repaired solution *worse* than the
+current one is still taken with probability `exp(Δ/T)`, `T` cooling geometrically.
+The global best is tracked separately and returned, so it can never ship below the
+incumbent it started from.
+
+Correctness gate — reaches every k≤3 optimum, ratio 1.00:
+
+| instance | τ | k | ALNS | optimum |
+|---|---|---|---|---|
+| tiny40 | 0.50 | 3 | 20 | 20 |
+| tiny40 | 0.75 | 3 | 8 | 8 |
+| tiny70 | 0.50 | 2 | 15 | 15 |
+| tiny70 | 0.50 | 3 | 22 | 22 |
+
+On the non-saturated tiny70 (τ=0.75, k=15) it reproduces the §5.23 plateau escape,
+50 → **51**, verify confirming all 51. **At-scale measurement is pending a
+multi-threaded run** — the same reason as §5.23, this dev box links no OpenMP, so
+the primaries/canaries must be taken on Kaggle before ALNS is compared to the
+plain destroy loop. Implemented, gate-clean, and expected to at least match
+`--lns-destroy`; whether the adaptive weights and SA acceptance buy anything over
+it is the open measurement.
+
+**Tabu (`--tabu N`) — fails the k≤3 gate, rejected as search.** Best-admissible
+2-exchange: at each step take the highest-Δ (out, in) swap even when Δ ≤ 0,
+forbidding the reverse for `tenure` iterations (tenure scaled to k), aspiration
+overriding tabu on a new global best, with a stall-perturbation for restart
+diversity. It is **verify-safe** — 50/50, 0 false, 0 missed, it never over-claims
+— but it does not reach the optima:
+
+| instance | τ | k | tabu | optimum | ratio |
+|---|---|---|---|---|---|
+| tiny40 | 0.50 | 3 | 20 | 20 | 1.00 |
+| tiny40 | 0.75 | 3 | **7** | 8 | 0.88 |
+| tiny70 | 0.50 | 2 | **14** | 15 | 0.93 |
+| tiny70 | 0.50 | 3 | **20** | 22 | 0.91 |
+
+The mechanism is the whole log in miniature. From a 2-exchange local optimum there
+is by definition no strict-improving *single* swap; reaching the true optimum needs
+a **coordinated multi-antenna change** — exactly the pair-blindness §5.11
+diagnosed. A single-swap tabu walk can only approach it via a precise multi-step
+path its greedy best-admissible selection does not take, and the stall-triggered
+perturbation fires too rarely to supply the restart diversity that would. The
+destroy-and-rebuild of §5.23/ALNS makes that coordinated change every iteration,
+which is why they clear the gate and tabu does not. Per rule 6 tabu is **not
+measured at scale**; it is kept in the tree, default off and labelled, as the
+fourth confirmation (with §5.12, §5.17, §5.19) that on this problem it is
+destroy-restart diversity, not single-move sophistication, that pays — §7.6's
+conclusion, now reached from one more direction.
+
 ---
 
 ## 6. Final results
@@ -1000,11 +1084,19 @@ competitively. The sub-problems that separate the field are **(0.75, 50)**,
    belongs in the repair operator, in the radii (§5.16, the only thing that has
    paid this round), or in restoring a trustworthy bound.
 7. ~~Fairly measure randomised-destroy LNS~~ **Measured (§5.23).** On a
-   multi-threaded build it wins +45 (+1.6%) at (0.75, 500), ties at (0.75, 50),
-   costs −4 at the (0.5, 50) canary. Kept as a default-off, archive-ratcheted
-   extra variant on the τ=0.75, k≥500 blocks. Still owed a fuller
-   `(operator × ρ × budget)` table and the (0.25, 500) canary before it becomes a
-   baseline rather than an add-on.
+   multi-threaded build the destroy variant wins **four of nine** blocks —
+   (0.25,1000), (0.5,500), (0.75,500), (0.75,1000) — including two deciding ones,
+   and sets a new 150 s high at (0.75,1000)=5,614. Best-of-two exports 51,814
+   verified. Kept as a default-off, archive-ratcheted variant. Still owed the
+   full `(operator × ρ × budget)` surface and the (0.25,500) canary.
+8. **Mature the repair-side search (§5.24, cont3.md Tier 2).** The destroy loop
+   is greedy keep-best with fixed operator order. Two upgrades are implemented and
+   pending at-scale measurement: **ALNS** (`--alns`) — adaptive operator weights
+   over {uniform, cluster, worst-removal} destroys with a simulated-annealing
+   acceptance that can cross score-decreasing moves — and **tabu search**
+   (`--tabu N`) — best-admissible 2-exchange with a tenure-`N` tabu list and
+   aspiration, the systematic version of what the random destroy hits by luck.
+   Measure both on Kaggle against the §5.23 grid before any keep/reject.
 
 ## 8. Reproducing everything here
 
