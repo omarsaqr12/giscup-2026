@@ -66,6 +66,8 @@ Writes the 9-block submission file. Useful flags:
 | `--swap-passes N` | cap on 2-exchange passes per polish call (default 200) |
 | `--lns-destroy` | randomised-destroy LNS: ruin ρ∈{5,10,15}% of the incumbent (uniform / spatial-cluster) and rebuild; the coupled multi-antenna move 2-exchange cannot make. Opt-in, default off (see FINDINGS §5.23) |
 | `--swap-plateau N` | accept ≤N score-equal 2-exchange swaps that raise the truncated secondary measure between strict gains, to cross objective plateaus. Opt-in, default off |
+| `--alns` | adaptive LNS: roulette over weighted destroy operators {uniform, cluster, worst-removal} with simulated-annealing acceptance. Passes the k≤3 gate; opt-in, default off (FINDINGS §5.24) |
+| `--tabu N` | tabu search over the 2-exchange neighbourhood, tenure N. **Fails the k≤3 gate** (single-swap pair-blindness); kept for the record, default off (FINDINGS §5.24) |
 | `--verify-radius R` | cap the verification sweep; 2500 is exact here and 2x faster |
 | `--restarts N` | GRASP restarts (helps only on tiny instances; default off) |
 | `--edge-spacing D` | also place candidate sites every D metres along edges |

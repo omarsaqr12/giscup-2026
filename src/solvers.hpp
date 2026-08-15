@@ -120,6 +120,15 @@ public:
         swap_plateau_on_ = on;
         swap_plateau_chain_ = chain;
     }
+    // cont3.md Tier 2. ALNS: roulette over adaptive-weighted destroy operators
+    // {uniform, spatial-cluster, worst-removal} with a simulated-annealing
+    // acceptance that can cross score-decreasing moves. Matures the greedy
+    // keep-best destroy of §5.23.
+    void set_alns(bool on) { alns_on_ = on; }
+    // Tabu search over the 2-exchange neighbourhood: at each step take the best
+    // admissible (out, in) swap even if it does not improve, forbidding the
+    // reverse for `tenure` iterations; aspiration overrides tabu on a new best.
+    void set_tabu(bool on, int tenure) { tabu_on_ = on; tabu_tenure_ = tenure; }
     const std::vector<int32_t>& picked() const { return picked_; }
 
     // Per-building potential. u is progress toward the threshold, in [0,1].
@@ -268,6 +277,11 @@ private:
             const std::vector<char>& mask);
     int lns_destroy_loop(int k, double time_budget_sec, unsigned seed, bool verbose,
                          const std::vector<char>& mask);
+    int alns_loop(int k, double time_budget_sec, unsigned seed, bool verbose,
+                  const std::vector<char>& mask);
+    int tabu_search(int k, double time_budget_sec, unsigned seed, bool verbose,
+                    const std::vector<char>& mask);
+    int removal_criticality(int32_t c) const;
 
     // Cheapest set of extra candidates that would finish building b, found by
     // greedy set cover over the candidates that see b. Returns cost, or -1 if
@@ -296,6 +310,9 @@ private:
     bool lns_destroy_on_ = false;
     bool swap_plateau_on_ = false;
     int swap_plateau_chain_ = 0;      // max equal-score moves between strict gains
+    bool alns_on_ = false;            // adaptive LNS (cont3.md Tier 2)
+    bool tabu_on_ = false;            // tabu search over the 2-exchange neighbourhood
+    int tabu_tenure_ = 0;
     double rcl_eps_ = 0.0;   // randomised greedy: accept any gain within (1-eps) of best
     unsigned rng_seed_ = 0;
     bool cost_mode_ = false;  // price remaining work in antennas rather than metres
@@ -1035,6 +1052,8 @@ inline void Solver::rebuild() {
 
 inline int Solver::lns(int k, double time_budget_sec, unsigned seed, bool verbose,
                        const std::vector<char>& mask) {
+    if (tabu_on_) return tabu_search(k, time_budget_sec, seed, verbose, mask);
+    if (alns_on_) return alns_loop(k, time_budget_sec, seed, verbose, mask);
     if (lns_destroy_on_) return lns_destroy_loop(k, time_budget_sec, seed, verbose, mask);
     const bool two_exch = two_exchange_on_;
     // Large-neighbourhood search: free antennas that provably are not holding
@@ -1205,6 +1224,268 @@ inline int Solver::lns_destroy_loop(int k, double time_budget_sec, unsigned seed
     if (verbose)
         std::fprintf(stderr, "[lns-destroy] tau=%.2f k=%d iters=%d improved=%d score=%d\n",
                      tau_, k, iter, improved, score_);
+    return best_score;
+}
+
+// Lower bound on the service-score drop if antenna c alone were withdrawn: count
+// the serviced buildings that would fall below tau once c's whole contribution is
+// discarded. It is a *bound* because c's arcs may overlap other holders, so the
+// true drop is no larger. Used to bias the ALNS worst-removal operator toward the
+// least-critical antennas, which are the cheapest to re-optimise around.
+inline int Solver::removal_criticality(int32_t c) const {
+    int loss = 0;
+    int64_t a = C_.start[c], z = C_.start[c + 1];
+    for (int64_t j = a; j < z;) {
+        int32_t b = C_.bld[j];
+        int64_t e = j;
+        double mine = 0;
+        while (e < z && C_.bld[e] == b) { mine += C_.s1[e] - C_.s0[e]; ++e; }
+        if (serviced_[b] && cov_[b].measure - mine < target_[b]) ++loss;
+        j = e;
+    }
+    return loss;
+}
+
+// Adaptive Large Neighbourhood Search (cont3.md Tier 2). The §5.23 destroy loop
+// with two upgrades that make it a proper ALNS:
+//   1. Three destroy operators -- uniform, spatial cluster, worst-removal --
+//      selected by roulette on weights that adapt to which operator has been
+//      producing accepted / improving moves (Ropke & Pisinger 2006).
+//   2. A simulated-annealing acceptance: a repaired solution that is *worse* than
+//      the current one is still accepted with probability exp(Δ/T), T cooling
+//      geometrically. This lets the walk cross a score-decreasing basin, which
+//      pure keep-best (§5.23) cannot. The global best is tracked separately and
+//      returned, so the export is never worse than the incumbent it started from.
+inline int Solver::alns_loop(int k, double time_budget_sec, unsigned seed, bool verbose,
+                             const std::vector<char>& mask) {
+    auto t0 = std::chrono::steady_clock::now();
+    auto elapsed = [&] {
+        return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    };
+    std::mt19937 rng(seed);
+    std::uniform_real_distribution<double> unit(0.0, 1.0);
+    active_ = mask;
+
+    if (two_exchange_on_) run_2exchange(t0, time_budget_sec);
+    std::vector<int32_t> best = picked_;  int best_score = score_;
+    std::vector<int32_t> cur  = picked_;  int cur_score  = score_;
+
+    const int NOP = 3;                      // 0 uniform, 1 cluster, 2 worst-removal
+    double w[NOP] = {1.0, 1.0, 1.0};
+    double rewsum[NOP] = {0, 0, 0};
+    int    rewcnt[NOP] = {0, 0, 0};
+    const double rhos[3] = {0.05, 0.10, 0.15};
+    const double sigma_best = 3.0, sigma_better = 1.5, sigma_accept = 0.5;
+    const double decay = 0.85;              // weight EMA between segments
+    const int    SEG = 24;                  // iterations per weight update
+    double T = std::max(1.0, 0.05 * cur_score);   // temperature, in "buildings"
+    const double cool = 0.9990, Tmin = 0.05;
+
+    std::vector<char> is_victim(cands_.size(), 0);
+    int iter = 0, improved = 0, accepted = 0, seg = 0;
+
+    while (elapsed() < time_budget_sec && cur.size() > 1) {
+        double tot = w[0] + w[1] + w[2];
+        double sel = unit(rng) * tot;
+        int op = (sel < w[0]) ? 0 : (sel < w[0] + w[1] ? 1 : 2);
+
+        picked_ = cur;
+        std::fill(chosen_.begin(), chosen_.end(), 0);
+        for (int32_t c : picked_) chosen_[c] = 1;
+        rebuild();
+
+        double rho = rhos[iter % 3];
+        int nd = std::max(1, (int)std::ceil(rho * (double)picked_.size()));
+        if (nd >= (int)picked_.size()) nd = (int)picked_.size() - 1;
+
+        std::vector<int32_t> victims;
+        victims.reserve(nd);
+        if (op == 0) {
+            std::vector<int32_t> pool = picked_;
+            std::shuffle(pool.begin(), pool.end(), rng);
+            victims.assign(pool.begin(), pool.begin() + nd);
+        } else if (op == 1) {
+            int32_t seedc = picked_[rng() % picked_.size()];
+            Vec2 sp = cands_[seedc].p;
+            std::vector<std::pair<double, int32_t>> d;
+            d.reserve(picked_.size());
+            for (int32_t c : picked_) {
+                double dx = cands_[c].p.x - sp.x, dy = cands_[c].p.y - sp.y;
+                d.emplace_back(dx * dx + dy * dy, c);
+            }
+            std::nth_element(d.begin(), d.begin() + nd, d.end(),
+                             [](const std::pair<double, int32_t>& a,
+                                const std::pair<double, int32_t>& b) { return a.first < b.first; });
+            for (int i = 0; i < nd; ++i) victims.push_back(d[i].second);
+        } else {
+            std::vector<std::pair<double, int32_t>> d;
+            d.reserve(picked_.size());
+            for (int32_t c : picked_)
+                d.emplace_back((double)removal_criticality(c) + unit(rng) * 0.5, c);
+            std::nth_element(d.begin(), d.begin() + nd, d.end(),
+                             [](const std::pair<double, int32_t>& a,
+                                const std::pair<double, int32_t>& b) { return a.first < b.first; });
+            for (int i = 0; i < nd; ++i) victims.push_back(d[i].second);
+        }
+
+        for (int32_t c : victims) is_victim[c] = 1;
+        std::vector<int32_t> keep;
+        keep.reserve(cur.size());
+        for (int32_t c : cur) if (!is_victim[c]) keep.push_back(c);
+        for (int32_t c : victims) is_victim[c] = 0;
+
+        picked_ = keep;
+        std::fill(chosen_.begin(), chosen_.end(), 0);
+        for (int32_t c : picked_) chosen_[c] = 1;
+        rebuild();
+        run_greedy(k, false);
+        if (two_exchange_on_) run_2exchange(t0, time_budget_sec);
+
+        int new_score = score_;
+        double reward = 0.0;
+        bool accept = false;
+        if (new_score > best_score) {
+            best = picked_; best_score = new_score; accept = true; reward = sigma_best; ++improved;
+        } else if (new_score >= cur_score) {
+            accept = true; reward = (new_score > cur_score) ? sigma_better : sigma_accept;
+        } else if (unit(rng) < std::exp((double)(new_score - cur_score) / T)) {
+            accept = true; reward = sigma_accept;
+        }
+        if (accept) { cur = picked_; cur_score = new_score; ++accepted; }
+
+        rewsum[op] += reward; rewcnt[op] += 1;
+        if (++seg >= SEG) {
+            for (int i = 0; i < NOP; ++i)
+                if (rewcnt[i] > 0) {
+                    w[i] = decay * w[i] + (1.0 - decay) * (rewsum[i] / rewcnt[i]);
+                    if (w[i] < 0.05) w[i] = 0.05;
+                    rewsum[i] = 0; rewcnt[i] = 0;
+                }
+            seg = 0;
+        }
+        T = std::max(Tmin, T * cool);
+        ++iter;
+    }
+
+    picked_ = best;
+    std::fill(chosen_.begin(), chosen_.end(), 0);
+    for (int32_t c : picked_) chosen_[c] = 1;
+    rebuild();
+    if (verbose)
+        std::fprintf(stderr,
+                     "[alns] tau=%.2f k=%d iters=%d improved=%d accepted=%d w=[%.2f %.2f %.2f] score=%d\n",
+                     tau_, k, iter, improved, accepted, w[0], w[1], w[2], score_);
+    return best_score;
+}
+
+// Tabu search over the 2-exchange neighbourhood (cont3.md Tier 2). Strict
+// 2-exchange (§5.13) stops at the first local optimum; here each step takes the
+// *best admissible* (out, in) swap even when it does not improve, so the search
+// keeps moving across plateaus and shallow basins. A tenure-length tabu list then
+// forbids immediately re-adding a just-removed antenna or removing a just-added
+// one, which is what stops the walk cycling back; aspiration overrides tabu when
+// a move would set a new global best. This is the systematic form of the coupled
+// move §5.23's random destroy reaches only by luck.
+inline int Solver::tabu_search(int k, double time_budget_sec, unsigned seed, bool verbose,
+                               const std::vector<char>& mask) {
+    auto t0 = std::chrono::steady_clock::now();
+    auto elapsed = [&] {
+        return std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+    };
+    std::mt19937 rng(seed);
+    active_ = mask;
+
+    if (two_exchange_on_) run_2exchange(t0, time_budget_sec);
+    std::vector<int32_t> best = picked_;
+    int best_score = score_;
+
+    const int shortlist = two_exchange_shortlist_ > 0 ? two_exchange_shortlist_ : 400;
+    // Tenure must be small relative to k or the list forbids everything on small
+    // instances (a fixed 10 over k=3 stalls the search below the optimum).
+    const int base_tenure = tabu_tenure_ > 0 ? tabu_tenure_ : 10;
+    const int tenure = std::max(1, std::min(base_tenure, k / 3));
+    std::vector<int> tabu_add(cands_.size(), 0), tabu_rem(cands_.size(), 0);
+    int it = 0, moves = 0, stalls = 0;
+
+    while (elapsed() < time_budget_sec) {
+        ++it;
+        // Shortlist: highest-gain unchosen candidates (as in two_exchange_step).
+        std::vector<std::pair<double, int32_t>> top;
+        top.reserve(cands_.size() / 8 + 1);
+        for (size_t c = 0; c < cands_.size(); ++c) {
+            if (chosen_[c] || C_.start[c] == C_.start[c + 1]) continue;
+            double g = gain((int32_t)c);
+            if (g > 0) top.emplace_back(g, (int32_t)c);
+        }
+        if ((int)top.size() > shortlist) {
+            std::nth_element(top.begin(), top.begin() + shortlist, top.end(),
+                             [](const std::pair<double, int32_t>& x,
+                                const std::pair<double, int32_t>& y) { return x.first > y.first; });
+            top.resize(shortlist);
+        }
+        if (top.empty()) break;
+
+        int cur = score_;
+        int best_delta = INT32_MIN;
+        int32_t mv_out = -1, mv_in = -1;
+        std::vector<int32_t> order = picked_;
+        for (int32_t out : order) {
+            if (!chosen_[out]) continue;
+            withdraw(out);
+            int lost = cur - score_;
+            for (const auto& t : top) {
+                int32_t in = t.second;
+                if (chosen_[in]) continue;
+                int delta = completions(in) - lost;          // new_score - cur
+                bool aspiration = cur + delta > best_score;
+                bool is_tabu = (tabu_add[out] > it) || (tabu_rem[in] > it);
+                if (is_tabu && !aspiration) continue;
+                if (delta > best_delta) { best_delta = delta; mv_out = out; mv_in = in; }
+            }
+            apply(out);                                       // restore for the next out
+            if (elapsed() >= time_budget_sec) break;
+        }
+        if (mv_out < 0) {
+            // Stalled with no admissible move. Perturb from the best incumbent
+            // (small random destroy + tuned repair), clear the tabu memory and
+            // continue -- the restart diversity a pure neighbourhood search
+            // otherwise lacks, and what let the LNS reach optima tabu missed.
+            // Bounded by the time budget (the while condition), not a stall count.
+            ++stalls;
+            int nd = std::max(1, (int)(0.10 * (double)best.size()));
+            std::vector<int32_t> pool = best;
+            std::shuffle(pool.begin(), pool.end(), rng);
+            std::vector<char> vic(cands_.size(), 0);
+            for (int i = 0; i < nd && i < (int)pool.size(); ++i) vic[pool[i]] = 1;
+            std::vector<int32_t> keep;
+            for (int32_t c : best) if (!vic[c]) keep.push_back(c);
+            picked_ = keep;
+            std::fill(chosen_.begin(), chosen_.end(), 0);
+            for (int32_t c : picked_) chosen_[c] = 1;
+            rebuild();
+            run_greedy(k, false);
+            if (two_exchange_on_) run_2exchange(t0, time_budget_sec);
+            if (score_ > best_score) { best = picked_; best_score = score_; stalls = 0; }
+            std::fill(tabu_add.begin(), tabu_add.end(), 0);
+            std::fill(tabu_rem.begin(), tabu_rem.end(), 0);
+            continue;
+        }
+
+        withdraw(mv_out);
+        apply(mv_in);
+        tabu_add[mv_out] = it + tenure;                       // do not re-add what we removed
+        tabu_rem[mv_in]  = it + tenure;                       // do not remove what we just added
+        ++moves;
+        if (score_ > best_score) { best = picked_; best_score = score_; stalls = 0; }
+    }
+
+    picked_ = best;
+    std::fill(chosen_.begin(), chosen_.end(), 0);
+    for (int32_t c : picked_) chosen_[c] = 1;
+    rebuild();
+    if (verbose)
+        std::fprintf(stderr, "[tabu] tau=%.2f k=%d iters=%d moves=%d tenure=%d score=%d\n",
+                     tau_, k, it, moves, tenure, score_);
     return best_score;
 }
 
