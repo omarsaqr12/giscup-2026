@@ -832,7 +832,7 @@ hours rather than minutes.
 
 Archive: 52,051 → **52,121**.
 
-### 5.23 Randomised-destroy LNS + plateau moves — **implemented; unproven at scale on this build**
+### 5.23 Randomised-destroy LNS + plateau moves — **kept: measured +1.6% at (0.75, 500)**
 
 The one construction-independent idea left (cont2.md Task 2). Every construction
 diversifier failed (§5.12, §5.17, §5.19) because the repair recovers from any
@@ -854,11 +854,13 @@ both behind flags, both default off:
 **Correctness.** Every candidate is re-verified uncapped before it can enter the
 archive, so the keep-best structure cannot ship an over-claim. Verified directly:
 on tiny70 and the sample the exported claims equal the independently verified
-count with 0 false / 0 missed for every variant. (The `giscup exact` k≤3 oracle
-gate could **not** be run on this Windows/MinGW-6.3 build — the enumerator's
-`static thread_local` scratch segfaults under this compiler; it must be re-run on
-the portable Linux build before the moves are trusted as *search*, as opposed to
-trusted as *safe*, which the re-verification already guarantees.)
+count with 0 false / 0 missed for every variant. The `giscup exact` k≤3 oracle
+now runs on the portable Linux build (Kaggle, g++ 11.4) and reproduces the §5.11
+optima exactly — tiny40 (0.5, 3) → 20 and (0.75, 3) → 8 — so the correctness
+harness is available again. (It **segfaults** on the Windows/MinGW-6.3 build: the
+enumerator's `static thread_local` scratch is miscompiled there. That is a
+toolchain defect, not an engine one — `solve`/`verify` are unaffected — and is a
+concrete reason the pipeline runs on Linux, not on that compiler.)
 
 **Where it helps — a cheap instance.** tiny70, τ=0.75, k=15, radius 600, 4 s:
 
@@ -888,23 +890,37 @@ plain 2-exchange gets passes, and iteration count is exactly what the method
 trades on. tiny70 wins *because* its 70-building repair is cheap enough to iterate
 many times even single-threaded; the sample's 12,860-building repair is not, here.
 
-**Verdict.** Kept, default off, **not rejected**: the equal-wall-clock loss is
-confounded by the missing OpenMP, so it is not a fair test of the move. It must be
-re-measured on a multi-threaded build (the portable Linux build, or Kaggle/Colab)
-where greedy repair is ~5–8× faster and the loop gets the iteration budget it is
-designed for. Because the archive ratchets (§5.15), the safe run-day use is simply
-to add `--lns-destroy --swap-plateau 8 --archive-add` as an *extra* variant on the
-high-variance τ=0.75 blocks: it can only raise the submission, never lower it.
+**Re-measured fairly — multi-threaded (Kaggle, 4 vCPU, g++ 11.4), radius 1000,
+verify-radius 3000, 150 s each:**
 
-Commands:
+| block | baseline (`--swap 400`) | `+ --lns-destroy --swap-plateau 8` | Δ |
+|---|---|---|---|
+| (0.75, 50) | 384 | 384 | 0 |
+| (0.75, 500) | 2,852 | **2,897** | **+45 (+1.6%)** |
+| (0.5, 50) canary | 860 | 856 | −4 (−0.5%) |
+
+The single-thread −6 was exactly the starved-iteration artifact diagnosed above,
+not a defect of the move: given real cores the greedy repair is fast, the destroy
+loop gets its iteration budget, and it **wins +45 (+1.6%) at (0.75, 500)** — a
+decisive block — while tying at (0.75, 50) and costing −4 at the (0.5, 50) canary.
+
+**Verdict — kept, default off, but a *measured* win on a decisive block.** By
+rule 5's per-sub-problem policy and the archive ratchet (§5.15): run
+`--lns-destroy --swap-plateau 8 --archive-add` as an *extra* variant on the
+τ=0.75, k≥500 blocks, where it pays; the archive keeps baseline at (0.5, 50) where
+it does not, so the canary costs nothing. This is the first construction-adjacent
+mechanism in this log to beat the polished baseline on a competition block — the
+consistent negative signal of §5.12/§5.17/§5.19 was about diversifying
+*construction*; diversifying the *repair* is a different lever and it moved. Still
+owed a fuller (operator × ρ × budget) table and the (0.25, 500) canary before it
+graduates from an add-on to a baseline.
+
+Commands (the multi-threaded A/B above):
 ```bash
-./giscup solve --data data/GIS-cup-sample-dataset.geojson --tau 0.75 --k 50 \
-    --radius 600 --lns-sec 90 --swap 400 --lns-destroy --swap-plateau 8 \
-    --archive-add --out /dev/null
+./giscup solve --data data/GIS-cup-sample-dataset.geojson --tau 0.75 --k 500 \
+    --radius 1000 --verify-radius 3000 --lns-sec 150 --swap 400 \
+    --lns-destroy --swap-plateau 8 --archive-add --out /dev/null
 ```
-
-Archive unchanged by the experiment on this build (the losing sample variant did
-not beat the incumbent; the winning tiny70 variant is not a competition block).
 
 ---
 
@@ -983,12 +999,12 @@ competitively. The sub-problems that separate the field are **(0.75, 50)**,
    four attempts is that construction is no longer the bottleneck — effort
    belongs in the repair operator, in the radii (§5.16, the only thing that has
    paid this round), or in restoring a trustworthy bound.
-7. **Fairly measure randomised-destroy LNS (§5.23).** It is implemented, correct,
-   and verified, but its one at-scale test ran single-threaded on a build with no
-   OpenMP, where it lost by 6 at (0.75, 50) purely on iteration count. Re-run the
-   `(operator × ρ × budget)` table on the portable multi-threaded build across the
-   three τ=0.75 primaries and the two canaries before deciding keep/reject. Until
-   then it stays a default-off, archive-ratcheted extra variant, not a baseline.
+7. ~~Fairly measure randomised-destroy LNS~~ **Measured (§5.23).** On a
+   multi-threaded build it wins +45 (+1.6%) at (0.75, 500), ties at (0.75, 50),
+   costs −4 at the (0.5, 50) canary. Kept as a default-off, archive-ratcheted
+   extra variant on the τ=0.75, k≥500 blocks. Still owed a fuller
+   `(operator × ρ × budget)` table and the (0.25, 500) canary before it becomes a
+   baseline rather than an add-on.
 
 ## 8. Reproducing everything here
 
