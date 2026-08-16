@@ -1,0 +1,12 @@
+[load] /tmp/claude-1001/-home-mohab-Downloads-hiLang/baee9b82-b40f-4746-8a12-6b755987707d/scratchpad/evaluator/datasets/GIS-cup-competition-dataset.geojson
+[load] 50000 buildings, 306833 edges, 0.11s
+[cand] 306833 candidate sites
+[contrib] candidates=306833 entries=13412545 (43.7 per candidate) mem=0.25 GB
+[contrib] WARNING 7 exactly edge-on non-incident edges skipped;
+          this dataset has grazing-visible walls the sweep drops.
+[contrib] 331.63s
+tau    k      pow   price      exact    search     sec note
+0.68   484    3.0   metre       4797      4756    14.5 tuned
+0.68   484    3.0   metre       5605      5575  2405.7 lns +808
+[out] exp3.txt (2752.0s total)
+0.68   484    -     -           5605         -       - archive NEW BEST (was 5557)
