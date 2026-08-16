@@ -1,0 +1,3 @@
+[load] /tmp/claude-1001/-home-mohab-Downloads-hiLang/baee9b82-b40f-4746-8a12-6b755987707d/scratchpad/evaluator/datasets/GIS-cup-competition-dataset.geojson
+[load] 50000 buildings, 306833 edges, 0.11s
+[cand] 306833 candidate sites
