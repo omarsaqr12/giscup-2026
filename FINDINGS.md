@@ -1141,7 +1141,42 @@ archive entries and 5 of 9 blocks, and 8.0 is the **largest exponent in the
 default sweep** `{1, 1.5, 2, 2.5, 3, 4, 6, 8}`. Identical failure mode to the
 radius. Round 2 re-opens both: powers extended to `{…, 12, 16, 24, 32}` at
 r2000 (a clean A/B against phase D, which differs only in the powers list), then
-radius continued to 2500 and 3000 at the extended powers. _(Results to follow.)_
+radius continued to 2500 and 3000 at the extended powers.
+
+| τ | k | G r2000 | H r2500 | I r3000 | winning exponent (r3000) |
+|---|---|---|---|---|---|
+| 0.32 | 9 | 1329 | 1397 | **1399** | 32 metre |
+| 0.32 | 49 | 3928 | 3997 | **4016** | 32 metre |
+| 0.32 | 484 | 15897 | 15951 | **15978** | 32 metre |
+| 0.49 | 9 | 769 | 774 | **800** | 32 antenna |
+| 0.49 | 49 | 2448 | 2503 | **2517** | 24 antenna |
+| 0.49 | 484 | 10335 | 10430 | **10444** | 12 antenna |
+| 0.68 | 9 | 233 | 221 | **239** | 2.5 antenna |
+| 0.68 | 49 | 1093 | 1150 | **1154** | 4 antenna |
+| 0.68 | 484 | 5461 | **5553** | 5513 | 3 metre |
+| | **total** | 41,493 | 41,976 | **42,060** | |
+
+**The exponent was censored, but only at low τ — and that is the interesting
+part.** Freed to go past 8, the τ=0.32 column runs straight to the new ceiling of
+32 on all three k, and (0.49, 9) joins it. But τ=0.68 settles at 2.5–4, deep
+inside the original range, and τ=0.49 lands in between at 12–24. So this is not
+"higher is better, we clipped it"; it is a real monotone relationship between the
+threshold and how convex the pricing should be. A low τ means most buildings are
+reachable, so the potential should discriminate aggressively between them (large
+exponent); a high τ means few are, so aggressive discrimination just starves the
+ones that could have been finished. §5.5 chose the *currency* per sub-problem for
+exactly this kind of reason; the exponent turns out to need the same treatment
+across a much wider range than the default sweep allowed. The τ=0.32 column is
+still pinned to the ceiling, so 32 is not established as its optimum either.
+
+**Radius still had not turned over at 3000.** r3000 beats r2500 on eight of nine
+blocks. The increments are decelerating (+483 total from 2000→2500, +84 from
+2500→3000), so the curve is flattening, but the maximum remains the largest value
+probed — the same censoring, a third time. (0.68, 484) is the lone block that
+prefers r2500, which is what per-block archiving is for.
+
+Cumulative: **39,231 → 42,100 (+7.3%)** over the first verified submission, every
+step gated by conformance and an uncapped `verify`.
 
 #### 5.25.3 The tuner was censoring its own answer — fixed
 
