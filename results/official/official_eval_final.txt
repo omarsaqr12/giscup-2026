@@ -1,0 +1,14 @@
+=== grading 14:51Z ===
+[official] evaluator 0.1.0, @arcgis/core 5.1.0, spatial tolerance 0.001 m
+[official] dataset: 50000 buildings (2802 ms)
+block 1  tau=0.32 k=9  claimed=1399  VERIFIED=1399  (88741 ms)
+block 2  tau=0.32 k=49  claimed=4035  VERIFIED=4035  (254383 ms)
+block 3  tau=0.32 k=484  claimed=16139  VERIFIED=16139  (1603292 ms)
+block 4  tau=0.49 k=9  claimed=802  VERIFIED=802  (57631 ms)
+block 5  tau=0.49 k=49  claimed=2531  VERIFIED=2531  (278390 ms)
+block 6  tau=0.49 k=484  claimed=10565  VERIFIED=10565  (1527095 ms)
+block 7  tau=0.68 k=9  claimed=254  VERIFIED=254  (26392 ms)
+block 8  tau=0.68 k=49  claimed=1175  VERIFIED=1175  (270837 ms)
+block 9  tau=0.68 k=484  claimed=5605  VERIFIED=5605  (1396047 ms)
+official total verified: 42505   [5505622 ms]
+=== grader3 done 16:23Z ===

@@ -1286,13 +1286,51 @@ exact re-derivation, conformance 9/9 with zero warnings.
 | 0.32 | 49 | 4,035 | | 0.49 | 49 | 2,531 | | 0.68 | 49 | 1,175 |
 | 0.32 | 484 | 16,139 | | 0.49 | 484 | 10,565 | | 0.68 | 484 | 5,557 |
 
-**The official grader was not run.** Node is not installed on this machine
-(no `node`, `npm`, `npx` or `pnpm`), and installing a toolchain plus
-`npm install` plus a 60–90 minute grading pass did not fit the window. §10 of the
-run-day playbook covers exactly this case: ship the internally-verified file. The
-supporting evidence is §5.20, where this engine agreed with the official grader
-on 51,844 of 51,844 claims. It remains the one gate this submission has not
-passed, and it should be the first thing run on any machine that has Node.
+#### 5.25.7 The official grader — run after submission, zero discrepancy
+
+Node was absent for most of the window, so the submission was uploaded on the
+internal gates alone (§10 of the playbook covers exactly that). A toolchain was
+installed afterwards and the grader run post-hoc, finishing 91.8 minutes later.
+
+Getting it to run took three attempts, all dependency problems rather than
+grading problems: `npm install` cannot resolve the evaluator's pnpm workspace,
+and `pnpm install` refuses it too because `pnpm-workspace.yaml` carries an empty
+`packages:` field. `pnpm install --ignore-workspace` resolves both without
+touching the evaluator repo. Worth recording for next year, because it is a
+20-minute detour discovered at the worst possible moment.
+
+Evaluator 0.1.0, `@arcgis/core` 5.1.0, spatial tolerance 0.001 m, run end to end
+through the organizers' own dataset loader, solution parser, submission
+validator and evaluation engine:
+
+| block | τ | k | claimed | official verified | ms |
+|---|---|---|---|---|---|
+| 1 | 0.32 | 9 | 1399 | **1399** | 88,741 |
+| 2 | 0.32 | 49 | 4035 | **4035** | 254,383 |
+| 3 | 0.32 | 484 | 16139 | **16139** | 1,603,292 |
+| 4 | 0.49 | 9 | 802 | **802** | 57,631 |
+| 5 | 0.49 | 49 | 2531 | **2531** | 278,390 |
+| 6 | 0.49 | 484 | 10565 | **10565** | 1,527,095 |
+| 7 | 0.68 | 9 | 254 | **254** | 26,392 |
+| 8 | 0.68 | 49 | 1175 | **1175** | 270,837 |
+| 9 | 0.68 | 484 | 5605 | **5605** | 1,396,047 |
+| | | | | **42,505** | 5,505,622 |
+
+**Nine of nine blocks agree exactly. No claim rejected, no block downgraded.**
+The rotational-sweep engine and the organizers' `@arcgis/core` geometry produce
+identical service decisions on all 42,505 claims, extending §5.20's
+51,844/51,844 to a second, larger dataset. The grazing-edge warning noted at the
+top of §5.25 — six to seven exactly edge-on non-incident edges the sweep drops —
+is confirmed to have no effect on the verdict.
+
+A process note, since it nearly cost the run. The grader was twice reported here
+as hung on the evidence of 0% CPU and no output after 38 minutes. Both readings
+were wrong: the CPU sample had matched the idle `npx` wrapper rather than the
+worker child, and the harness piped output through `tail`, which buffers until
+exit. The worker was saturating a core throughout. A `pkill` issued on that false
+diagnosis failed to match the process, which is the only reason 41 minutes of
+work survived. Measure the process that is doing the work, and do not put a
+buffering filter between a long job and its progress output.
 
 #### 5.25.3 The tuner was censoring its own answer — fixed
 
