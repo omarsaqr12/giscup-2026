@@ -1,0 +1,30 @@
+[params] 3 tau x 3 k = 9 blocks from params.txt
+[load] ../evaluator/datasets/GIS-cup-competition-dataset.geojson
+[load] 50000 buildings, 306833 edges, 0.10s
+[cand] 306833 candidate sites
+[contrib] candidates=306833 entries=13693043 (44.6 per candidate) mem=0.26 GB
+[contrib] WARNING 7 exactly edge-on non-incident edges skipped;
+          this dataset has grazing-visible walls the sweep drops.
+[contrib] 1335.14s
+tau    k      pow   price      exact    search     sec note
+0.32   9      128.0 ant         1399      1375    20.5 tuned
+0.32   9      128.0 ant         1399      1375   301.1 lns no gain
+0.32   49     48.0  ant         3969      3931    34.5 tuned
+0.32   49     48.0  ant         4028      3993   302.2 lns +59
+0.32   49     -     -           4028         -       - archive NEW BEST (was 4016)
+0.32   484    64.0  ant        15663     15624   120.1 tuned
+0.32   484    64.0  ant        15978     15945   313.6 lns +315
+0.49   9      128.0 ant          800       784    17.6 tuned
+0.49   9      128.0 ant          800       784   301.1 lns no gain
+0.49   49     96.0  ant         2464      2436    31.8 tuned
+0.49   49     96.0  ant         2517      2491   302.6 lns +53
+0.49   484    16.0  ant         9915      9890   109.1 tuned
+0.49   484    16.0  ant        10458     10437   314.2 lns +543
+0.49   484    -     -          10458         -       - archive NEW BEST (was 10444)
+0.68   9      2.5   ant          203       202    15.9 tuned
+0.68   9      2.5   ant          231       231   301.0 lns +28
+0.68   49     4.0   ant         1007       987    22.2 tuned
+0.68   49     4.0   ant         1154      1138   302.2 lns +147
+0.68   484    3.0   metre       4907      4882    92.0 tuned
+0.68   484    3.0   metre       5513      5492   313.3 lns +606
+[out] /dev/null (4550.3s total)

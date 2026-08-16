@@ -1,0 +1,34 @@
+=== gate 1: official submission-format conformance ===
+
+blocks: 9 (expected 9)
+CONFORMANCE PASSED
+
+=== gate 2: repository self-tests ===
+ALL FIGURE TESTS PASSED
+CROSSCHECK PASSED
+
+=== staging ===
+  results.txt        304639 bytes, 27 lines
+  source/            33 files
+
+=== writing archive ===
+  giscup2026-submission.zip  256K
+
+=== gate 3: the packaged results file still conforms ===
+blocks: 9 (expected 9)
+CONFORMANCE PASSED
+/tmp/tmp.q6ChKnSN3B/giscup2026:
+README.txt
+results.txt
+source
+
+/tmp/tmp.q6ChKnSN3B/giscup2026/source:
+FINDINGS.md
+Makefile
+plan.md
+README.md
+src
+tests
+tools
+
+PACKAGE READY: giscup2026-submission.zip  -> upload to EasyChair (conf=giscup2026)

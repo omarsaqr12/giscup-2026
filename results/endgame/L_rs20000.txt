@@ -1,0 +1,16 @@
+[load] ../evaluator/datasets/GIS-cup-competition-dataset.geojson
+[load] 50000 buildings, 306833 edges, 0.09s
+[cand] 306833 candidate sites
+[contrib] candidates=306833 entries=13693043 (44.6 per candidate) mem=0.26 GB
+[contrib] WARNING 7 exactly edge-on non-incident edges skipped;
+          this dataset has grazing-visible walls the sweep drops.
+[contrib] 1238.80s
+tau    k      pow   price      exact    search     sec note
+0.32   9      128.0 ant         1399      1375  2260.4 tuned
+0.32   9      128.0 ant         1399      1375   202.6 lns no gain
+0.49   9      128.0 ant          802       785  1981.0 tuned
+0.49   9      128.0 ant          802       785   202.1 lns no gain
+0.49   9      -     -            802         -       - archive NEW BEST (was 800)
+0.68   9      2.5   ant          227       215  1739.7 tuned
+0.68   9      2.5   ant          254       247   201.2 lns +27
+[out] /dev/null (7826.2s total)

@@ -1178,6 +1178,122 @@ prefers r2500, which is what per-block archiving is for.
 Cumulative: **39,231 → 42,100 (+7.3%)** over the first verified submission, every
 step gated by conformance and an uncapped `verify`.
 
+#### 5.25.4 Round 3 — three levers, three nulls
+
+`--finalists 5` (phase J, r3000): **+6 total, six of nine blocks bit-identical.**
+The hypothesis was that widening the power sweep to 24 configs would leave the
+top-2 finalist cut too narrow. It does not: the cheap unfocused greedy ranks well
+enough that finalists 3–5 never contain the winner. Worth stating beside §5.25.2
+because the two point opposite ways — widening the sweep *range* paid enormously,
+widening the *finalist depth* paid nothing. The ranking step was never the
+bottleneck; the range was. 78 minutes for +6.
+
+**The exponent boundary, resolved as a dead end (phases K, K2).** K swept
+`{2.5 … 128}`, K2 swept `{96 … 512}`, both at r3000, all nine blocks.
+
+| τ | k | pre-K | K | q | K2 | q | best |
+|---|---|---|---|---|---|---|---|
+| 0.32 | 9 | 1399 | 1399 | 128 | 1399 | 96 | 1399 |
+| 0.32 | 49 | 4016 | 4028 | 48 | **4035** | 96 | 4035 |
+| 0.32 | 484 | 15978 | 15978 | 64 | **16004** | 512 | 16004 |
+| 0.49 | 9 | 800 | 800 | 128 | 800 | 96 | 800 |
+| 0.49 | 49 | 2517 | 2517 | 96 | **2531** | 96 | 2531 |
+| 0.49 | 484 | 10444 | **10458** | 16 | 10445 | 96 | 10458 |
+| 0.68 | 9 | 239 | 231 | 2.5 | 168 | 96 | 239 |
+| 0.68 | 49 | 1154 | 1154 | 4 | 1131 | 384 | 1154 |
+| 0.68 | 484 | 5513 | 5513 | 3 | **4888** | 256 | 5513 |
+| | total | 42,060 | 42,078 | | 41,401 | | |
+
+The exponent is **censored but flat**. q=512 is selected at (0.32, 484) and the
+score barely moves; K2's own total is 659 *below* pre-K. Above roughly 16 the
+objective is nearly indifferent to q — every large exponent induces the same
+ranking — so the ceiling keeps receding without carrying score with it. This is
+the opposite of the radius, where each extension bought hundreds, and it is why
+K3 was **not** run despite 512 still binding: the mechanism, not the boundary,
+says stop. τ=0.68 also confirms §5.25.2 from the other side, collapsing
+5513 → 4888 when forced high. Combined K+K2: **+126 for 155 minutes.**
+
+#### 5.25.5 The k=9 column — converged, and the shortlist proves it
+
+§5.11 (pair-blindness), §5.12 (GRASP works small) and §5.25.1 (polish saturates
+at 20 s) all point at k=9 as the least-exploited regime, and three of the nine
+blocks live there. The shortlist economics invert at k=9: a 2-exchange pass is
+`O(k × shortlist)`, so even the full candidate set is only 9 × 306,833 ≈ 2.8 M
+evaluations — tractable where it is hopeless at k=484. `--swap 400` was chosen
+for a k=50 world.
+
+| shortlist | τ=0.32 | τ=0.49 | τ=0.68 | sum | wall-clock (0.68) |
+|---|---|---|---|---|---|
+| 400 (baseline) | 1399 | 800 | 239 | 2438 | — |
+| 2,000 | 1399 | 800 | 252 | 2451 | 201 s |
+| 10,000 | 1399 | 800 | 254 | 2453 | 201 s |
+| 50,000 | 1399 | 800 | 254 | 2453 | 201 s |
+| 306,833 (full) | 1399 | 800 | 254 | 2453 | 201 s |
+
+**A 766× wider neighbourhood buys +2, and the wall-clock is identical at every
+setting.** That last column is the finding: if the shortlist were binding, a
+larger one would cost more time. It does not, because `run_2exchange` exits on
+`r == 0` — no improving swap exists — long before the budget runs out. At k=9 the
+solution is genuinely locally optimal under the full neighbourhood, so there was
+never anything for a wider shortlist to find. The +15 at (0.68, 9) is real but
+belongs to the 200 s budget, not the shortlist.
+
+Restarts confirm it from the other direction: 1,000 and 5,000 reproduce the
+baseline exactly; 20,000 finds **+2** at (0.49, 9). §5.12's verdict survives
+everything this round threw at it.
+
+**A limitation worth recording:** `lns_destroy_loop` hardcodes
+`rhos = {0.05, 0.10, 0.15}` with `nd = max(1, ceil(ρ·k))`, so at k=9 the destroy
+size is {1, 1, 2} antennas and no flag widens it. The coupled multi-antenna
+replacement §5.11 identifies as the missing move class is therefore capped at two
+antennas in exactly the regime that most needs it. Fixing that is a code change,
+which the submission window forbids (§5.20's precedent); it is the first thing to
+try next time.
+
+#### 5.25.6 Two machines, and where the last +267 came from
+
+A second machine joined for the last two hours and was given the k=49 and k=484
+columns while this one kept k=9 — a split by column, so neither could duplicate
+the other. Results came back as submission files and were imported with
+`archive add --from-submission`, which re-derives every claim with an exact
+uncapped sweep before the entry is accepted; nothing enters the archive on trust,
+so an outside file is verified rather than believed. Six placements imported,
+**zero rejected**.
+
+| block | before | after | source |
+|---|---|---|---|
+| (0.32, 484) | 16004 | **16139** | 1800 s polish, r3000 |
+| (0.49, 484) | 10458 | **10565** | 1800 s polish, r3000 |
+| (0.68, 484) | 5553 | **5557** | 1800 s polish, r3000 |
+| (0.68, 49) | 1154 | **1175** | `--swap 20000`, r3000 |
+
+**+267 in about two hours, winning four of nine blocks** — more than this
+machine's entire six-hour endgame produced (+90). The long-polish result is the
+substantive one: k=484 gained +466 going from 20 s to 300 s in §5.25.1 and was
+never given more, so it was the one column still starved of budget while the
+endgame spent its clock on k=9, where §5.25.1 had already measured polish as
+saturated. The k=9 work was not wrong — it was the largest *unexplored* regime —
+but the measured evidence for where budget pays was sitting in §5.25.1 the whole
+time.
+
+**Final submission: 42,457** — 39,231 → 42,457, **+8.2%** over the first verified
+upload of the day. Nine blocks, `false=0 missed=0 unknown_id=0` under an uncapped
+exact re-derivation, conformance 9/9 with zero warnings.
+
+| τ | k | final | | τ | k | final | | τ | k | final |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 0.32 | 9 | 1,399 | | 0.49 | 9 | 802 | | 0.68 | 9 | 254 |
+| 0.32 | 49 | 4,035 | | 0.49 | 49 | 2,531 | | 0.68 | 49 | 1,175 |
+| 0.32 | 484 | 16,139 | | 0.49 | 484 | 10,565 | | 0.68 | 484 | 5,557 |
+
+**The official grader was not run.** Node is not installed on this machine
+(no `node`, `npm`, `npx` or `pnpm`), and installing a toolchain plus
+`npm install` plus a 60–90 minute grading pass did not fit the window. §10 of the
+run-day playbook covers exactly this case: ship the internally-verified file. The
+supporting evidence is §5.20, where this engine agreed with the official grader
+on 51,844 of 51,844 claims. It remains the one gate this submission has not
+passed, and it should be the first thing run on any machine that has Node.
+
 #### 5.25.3 The tuner was censoring its own answer — fixed
 
 Worth separating from the score table, because it is a defect in the tool rather
