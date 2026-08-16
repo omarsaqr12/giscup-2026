@@ -1143,6 +1143,41 @@ radius. Round 2 re-opens both: powers extended to `{…, 12, 16, 24, 32}` at
 r2000 (a clean A/B against phase D, which differs only in the powers list), then
 radius continued to 2500 and 3000 at the extended powers. _(Results to follow.)_
 
+#### 5.25.3 The tuner was censoring its own answer — fixed
+
+Worth separating from the score table, because it is a defect in the tool rather
+than a property of the city. `cmd_tune` probed a hardcoded ladder
+`{150, 300, 600, 1000, 1500}` and then applied a knee rule (smallest radius
+within 2% of the best). On the sample that ladder brackets the optimum and the
+rule is sound — the curve turns over and the knee is real. On the competition
+dataset the score was still climbing at the last rung, so the tuner reported
+1500 m for the sole reason that it was the largest number it tried, and nothing
+in the output distinguished "flattened here" from "ran out of ladder". §5.16
+records radius re-tuning as the largest gain of its round; the tool that performs
+it was silently capped.
+
+Three changes:
+
+1. **The ladder is open-ended.** After the fixed rungs it keeps appending
+   `r + 500` while the previous step still bought more than 1%, bounded by a new
+   `--tune-max-radius` (default 3000).
+2. **Censoring is announced.** If the best radius is the largest probed, the
+   tuner prints a warning saying the sweep is bounded by its own range, and
+   `runday.sh` re-prints it in the GO/NO-GO summary.
+3. **The knee rule only applies to a sweep that flattened.** On a censored sweep
+   there is no identifiable knee, so the maximum is recommended instead, labelled
+   as such.
+
+Regression-checked on the sample, `tau=0.5, k=50`: the ladder now extends to
+2000 m (1500 scored 558 against 1000's 552, over the 1% bar), the score *falls*
+to 548 there, the sweep is therefore not censored, the knee rule applies, and the
+recommendation is **1000 m** — the same answer §5.3 and §5.16 record. The fix
+changes the answer only in the case it was designed to catch.
+
+Had this been in place on run day, the competition tuner would have kept climbing
+past 1500 m instead of stopping there, and the +2,254 of §5.25.1 would have been
+found in the first sweep rather than the fourth.
+
 ---
 
 ## 6. Final results

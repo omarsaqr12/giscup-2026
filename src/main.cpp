@@ -48,6 +48,7 @@ struct Args {
     std::vector<double> taus{0.25, 0.5, 0.75};
     std::vector<double> ks{50, 500, 1000};
     double radius = 300.0;
+    double tune_max_radius = 3000.0;  // ceiling for the open-ended `tune` ladder
     double min_frac = 0.01;
     double edge_spacing = 0.0;
     double lns_sec = 20.0;
@@ -912,8 +913,17 @@ static int cmd_tune(const Args& A) {
     std::printf("%-10s %10s %12s %10s\n", "radius", "score", "precompute", "entries/cand");
     double best_score = -1, best_r = A.radius;
     std::vector<std::pair<double, int>> scores;
+    // The ladder is open-ended on purpose. A fixed ceiling makes the whole
+    // exercise self-confirming: if the score is still climbing at the last rung,
+    // the "recommendation" is a property of the probe range, not of the city. On
+    // the 2026 competition dataset the old fixed ceiling of 1500 m duly
+    // recommended 1500 m -- and 2000 m then beat it on all nine sub-problems
+    // (FINDINGS 5.25.1). So keep climbing while a rung still pays, and stop only
+    // at a flat step or the cap.
     std::vector<double> rs{150, 300, 600, 1000, 1500};
-    for (double r : rs) {
+    int prev_score = -1;
+    for (size_t i = 0; i < rs.size(); ++i) {
+        double r = rs[i];
         double t0 = now_s();
         ContribOpts co;
         co.radius = r;
@@ -932,17 +942,38 @@ static int cmd_tune(const Args& A) {
         std::fflush(stdout);
         scores.emplace_back(r, v.score);
         if (v.score > best_score) { best_score = v.score; best_r = r; }
+        // Still climbing at the top rung? Add another one.
+        if (i + 1 == rs.size() && prev_score > 0 && r < A.tune_max_radius &&
+            v.score > prev_score * 1.01)
+            rs.push_back(r + 500);
+        prev_score = v.score;
     }
+    const bool censored = !scores.empty() && best_r >= rs.back();
     // Recommend the *knee*, not the maximum: precompute cost grows roughly
     // quadratically in radius while quality flattens, so the smallest radius
     // within 2% of the best is the better operating point. Measured on the
     // sample this picks 1000 m, which beat both 600 m and 1500 m through the
     // full pipeline on two of the three deciding sub-problems -- whereas
     // picking the raw maximum would have said 1500 m.
-    for (const auto& rs : scores)
-        if (rs.second >= best_score * 0.98) { best_r = rs.first; break; }
-    std::printf("\n  -> recommended --radius %g  (knee; best was %g at score %d)\n\n",
-                best_r, best_score > 0 ? best_r : best_r, (int)best_score);
+    //
+    // The knee is only meaningful on a sweep that actually flattened. If the best
+    // is the largest rung tried, the curve never turned over and the cheap-enough
+    // rung cannot be identified -- so recommend the maximum and say why.
+    double knee_r = best_r;
+    for (const auto& rs2 : scores)
+        if (rs2.second >= best_score * 0.98) { knee_r = rs2.first; break; }
+    if (censored) {
+        std::printf("\n  WARNING: score was still climbing at %g m, the largest radius probed.\n"
+                    "           This sweep is censored by its own range -- the true optimum may\n"
+                    "           be larger. Raise --tune-max-radius (currently %g) to probe further.\n",
+                    best_r, A.tune_max_radius);
+        std::printf("  -> recommended --radius %g  (max probed, NOT a knee; score %d)\n\n",
+                    best_r, (int)best_score);
+    } else {
+        best_r = knee_r;
+        std::printf("\n  -> recommended --radius %g  (knee; best was %d)\n\n",
+                    best_r, (int)best_score);
+    }
 
     // --- verify radius ------------------------------------------------------
     ContribOpts co;
@@ -987,6 +1018,7 @@ int main(int argc, char** argv) {
         else if (a == "--k") A.ks = parse_list(next());
         else if (a == "--radius") A.radius = std::atof(next().c_str());
         else if (a == "--min-frac") A.min_frac = std::atof(next().c_str());
+        else if (a == "--tune-max-radius") A.tune_max_radius = std::atof(next().c_str());
         else if (a == "--edge-spacing") A.edge_spacing = std::atof(next().c_str());
         else if (a == "--lns-sec") A.lns_sec = std::atof(next().c_str());
         else if (a == "--cell") A.cell = std::atof(next().c_str());

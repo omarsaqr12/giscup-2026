@@ -66,6 +66,17 @@ if [ -z "${VRAD:-}" ]; then
     VRAD=-1
 fi
 : "${RADIUS:=600}"
+# A censored sweep is the failure that cost us radius 2000 on run day: the ladder
+# stopped at 1500, so 1500 was "recommended" for being the last rung rather than
+# the best one. The tuner now says so out loud; make sure run day cannot miss it.
+if grep -q 'still climbing' "$LOG/tune.txt"; then
+    echo
+    echo "  *** RADIUS SWEEP CENSORED -- the score had not turned over at $RADIUS m."
+    echo "      Solve at this radius AND at larger ones; the archive keeps the best"
+    echo "      per block, so a losing radius costs nothing. Re-run tune with a"
+    echo "      larger --tune-max-radius to find where it actually flattens."
+    echo
+fi
 echo "  -> radius=$RADIUS  verify-radius=$VRAD"
 
 step "4/5  marginal-returns diagnostic (§4.1 of FINDINGS)"
