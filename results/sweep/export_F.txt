@@ -1,0 +1,13 @@
+[params] 3 tau x 3 k = 9 blocks from params.txt
+tau    k          score  method                 timestamp
+0.32   9           1323  focus+lns,p8.0,metre,lns300s,swap,ld,plat 2026-08-15T23:43:54
+0.32   49          3943  focus+lns,p8.0,metre,lns300s,swap,ld,plat 2026-08-15T23:49:15
+0.32   484        15906  focus+lns,p8.0,metre,lns300s,swap,ld,plat 2026-08-15T23:56:03
+0.49   9            769  focus+lns,p2.5,metre,lns300s,swap,ld,plat 2026-08-16T00:01:14
+0.49   49          2438  focus+lns,p8.0,metre,lns300s,swap,ld,plat 2026-08-16T00:06:35
+0.49   484        10324  focus+lns,p8.0,ant,lns300s,swap,ld,plat 2026-08-16T00:13:25
+0.68   9            228  focus+lns,p4.0,metre,lns300s,swap,ld,plat 2026-08-16T00:18:35
+0.68   49          1093  focus+lns,p4.0,ant,lns300s,swap,ld,plat 2026-08-16T00:23:54
+0.68   484         5461  focus+lns,p3.0,metre,lns300s,swap,ld,plat 2026-08-16T00:30:27
+
+total 41485 serviced -> cand.txt

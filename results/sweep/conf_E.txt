@@ -1,0 +1,12 @@
+  block 1: tau=0.32 k=9  antennas=9 retained=9  claims=1323
+  block 2: tau=0.32 k=49  antennas=49 retained=49  claims=3943
+  block 3: tau=0.32 k=484  antennas=484 retained=484  claims=15906
+  block 4: tau=0.49 k=9  antennas=9 retained=9  claims=769
+  block 5: tau=0.49 k=49  antennas=49 retained=49  claims=2438
+  block 6: tau=0.49 k=484  antennas=484 retained=484  claims=10324
+  block 7: tau=0.68 k=9  antennas=9 retained=9  claims=228
+  block 8: tau=0.68 k=49  antennas=49 retained=49  claims=1093
+  block 9: tau=0.68 k=484  antennas=484 retained=484  claims=5461
+
+blocks: 9 (expected 9)
+CONFORMANCE PASSED

@@ -1,0 +1,29 @@
+block 1  tau=0.32  k=9     antennas=9     claimed=1211   verified=1211   false=0    missed=0    unknown_id=0
+          fractional-surrogate value of this solution = 1905.8
+          claim margin above tau:  <1e-12:0  <1e-9:0  <1e-6:0  <1e-3:2
+block 2  tau=0.32  k=49    antennas=49    claimed=3819   verified=3819   false=0    missed=0    unknown_id=0
+          fractional-surrogate value of this solution = 5666.0
+          claim margin above tau:  <1e-12:0  <1e-9:0  <1e-6:0  <1e-3:10
+block 3  tau=0.32  k=484   antennas=484   claimed=15709  verified=15709  false=0    missed=0    unknown_id=0
+          fractional-surrogate value of this solution = 22052.2
+          claim margin above tau:  <1e-12:0  <1e-9:0  <1e-6:0  <1e-3:57
+block 4  tau=0.49  k=9     antennas=9     claimed=687    verified=687    false=0    missed=0    unknown_id=0
+          fractional-surrogate value of this solution = 1575.5
+          claim margin above tau:  <1e-12:0  <1e-9:0  <1e-6:0  <1e-3:1
+block 5  tau=0.49  k=49    antennas=49    claimed=2349   verified=2349   false=0    missed=0    unknown_id=0
+          fractional-surrogate value of this solution = 4375.0
+          claim margin above tau:  <1e-12:0  <1e-9:0  <1e-6:0  <1e-3:8
+block 6  tau=0.49  k=484   antennas=484   claimed=10233  verified=10233  false=0    missed=0    unknown_id=0
+          fractional-surrogate value of this solution = 16177.1
+          claim margin above tau:  <1e-12:0  <1e-9:0  <1e-6:0  <1e-3:33
+block 7  tau=0.68  k=9     antennas=9     claimed=192    verified=192    false=0    missed=0    unknown_id=0
+          fractional-surrogate value of this solution = 914.0
+          claim margin above tau:  <1e-12:0  <1e-9:0  <1e-6:0  <1e-3:0
+block 8  tau=0.68  k=49    antennas=49    claimed=1039   verified=1039   false=0    missed=0    unknown_id=0
+          fractional-surrogate value of this solution = 2789.3
+          claim margin above tau:  <1e-12:0  <1e-9:0  <1e-6:0  <1e-3:2
+block 9  tau=0.68  k=484   antennas=484   claimed=5327   verified=5327   false=0    missed=0    unknown_id=0
+          fractional-surrogate value of this solution = 11162.7
+          claim margin above tau:  <1e-12:0  <1e-9:0  <1e-6:0  <1e-3:24
+
+SUBMISSION OK

@@ -1068,8 +1068,80 @@ nine. `conformance.py`: 9/9, 0 warnings. Packaged and uploaded early per the
 run-day rule. Per-block scores: (0.32){1201, 3813, 15359}, (0.49){662, 2349,
 9757}, (0.68){180, 968, 4942}.
 
-**Per-block winners after the main sweep:** _(table to follow — radii {1000, 1500,
-2000} × {dpl, base}, GRASP-on-k=9, multi-seed)._
+**Loader note.** The contribution build reports `6 exactly edge-on non-incident
+edges skipped` (7 at radius 2000) — this city has grazing-visible walls the sweep
+drops. Both the solver and `verify` use the same sweep, so the submission is
+internally consistent; the official grader is the arbiter on whether those arcs
+should count, which is one more reason to run §10 before the last upload.
+
+#### 5.25.1 Round 1 sweep — radius dominates everything
+
+Six phases, each `--archive-add`, each followed by export → conformance →
+uncapped `verify` → package, promoting the zip only on a clean verify. Total
+39,231 → **41,485 (+5.7%)**. Per-block score by phase (all at `--lns-sec 300`
+unless noted; **bold** = block winner):
+
+| τ | k | seed@20s | A r1500 | C r1500+GRASP | B r1500 base | **D r2000** | E seed2 | F r1000 |
+|---|---|---|---|---|---|---|---|---|
+| 0.32 | 9 | 1201 | 1201 | 1211 | 1201 | **1323** | 1201 | 1035 |
+| 0.32 | 49 | 3813 | 3819 | 3819 | 3809 | **3943** | 3829 | 3525 |
+| 0.32 | 484 | 15359 | 15709 | 15709 | 15695 | **15906** | — | 15336 |
+| 0.49 | 9 | 662 | 662 | 687 | 662 | **769** | 665 | 564 |
+| 0.49 | 49 | 2349 | 2344 | 2344 | 2335 | **2438** | 2337 | 2139 |
+| 0.49 | 484 | 9757 | 10194 | 10194 | 10233 | **10324** | — | 9935 |
+| 0.68 | 9 | 180 | 192 | 192 | 180 | **228** | 191 | 145 |
+| 0.68 | 49 | 968 | 1039 | 1039 | 1007 | **1093** | 1028 | 850 |
+| 0.68 | 484 | 4942 | 5327 | 5327 | 5305 | **5461** | — | 5105 |
+
+**Radius 2000 wins all nine blocks.** This is the whole round in one line. The
+run-day tuner recommended 1500 — but 1500 was the *largest radius it probed*, so
+the recommendation was censored by its own sweep range, not a knee. r1000 loses
+to even the 20-second seed run everywhere, confirming the direction. Radius
+outweighs polish budget, seed and construction diversity **combined**: r2000 buys
++82 at (0.49, 9) where 15× more polish bought 0. §5.16 called radius re-tuning the
+largest gain of its round; on this instance it is the largest gain by an order of
+magnitude. Cost is time, not memory — entries/candidate barely move (37.3 → 40.1 →
+42.0 for r1000/1500/2000, ≈0.24 GB throughout) while precompute goes 129 s → 288 s
+→ 542 s. The few extra long-range arcs are precisely the ones that finish a
+building.
+
+**Polish saturates at small k — measured, not assumed.** At (0.32, 9) the destroy
+loop returned *exactly* its 20-second score after 300 s: 15× the budget, zero
+gain. Every k=9 block was flat between A and its seed run. `lns_destroy_loop` has
+no convergence exit, so that budget is genuinely spent, not skipped — at small k
+it is spent on nothing. Budget belongs at k=484, where the same step bought +466.
+
+**GRASP (§5.12) revisited at k=9 — marginal, and the §5.12 verdict stands.**
+C vs A is a clean A/B: identical radius, identical 300 s budget, `--restarts 128`
+the only difference.
+
+| block | A (no restarts) | C (restarts 128) | Δ |
+|---|---|---|---|
+| (0.32, 9) | 1201 | 1211 | **+10** |
+| (0.49, 9) | 662 | 687 | **+25** |
+| (0.68, 9) | 192 | 192 | 0 |
+| all six k≥49 blocks | — | — | **0** |
+
+Six of nine blocks are bit-identical. GRASP does not transfer at k=49 or k=484,
+exactly as §5.12 found at k=50. At k=9 it produces a small real gain, consistent
+with "works small, does not transfer" and with k=9 sitting near that boundary.
+But it is second-order: its best case (+25) is a third of what simply widening the
+radius bought on the same block (+82). Kept as a free rider on the k=9 column,
+not promoted to a method of record.
+
+**Seed variance is small here.** Phase E (seed 2, k ∈ {9, 49}) lost to seed 1 on
+every block it touched. The pre-run expectation of high between-seed variance at
+small k did not hold on this instance — the construction is more deterministic
+than the sample suggested, which is also why GRASP has so little to find.
+
+#### 5.25.2 Round 2 — the same error, in the exponent sweep
+
+The round-1 winner table exposes a second censored boundary: `p8.0` wins 47 of 70
+archive entries and 5 of 9 blocks, and 8.0 is the **largest exponent in the
+default sweep** `{1, 1.5, 2, 2.5, 3, 4, 6, 8}`. Identical failure mode to the
+radius. Round 2 re-opens both: powers extended to `{…, 12, 16, 24, 32}` at
+r2000 (a clean A/B against phase D, which differs only in the powers list), then
+radius continued to 2500 and 3000 at the extended powers. _(Results to follow.)_
 
 ---
 
