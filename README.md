@@ -1,94 +1,65 @@
-# SIGSPATIAL 2026 GIS Cup — antenna placement
+# GIS Cup 2026 | Geometric antenna placement
 
-Place `k` antennas on building boundaries to maximise the number of buildings
-whose perimeter is at least a fraction `τ` visible from at least one antenna.
+**C++17 · computational geometry · combinatorial optimization · verification**
 
-See [plan.md](plan.md) for the approach, the geometry that drives it, and the
-measured results.
+A solver for the [ACM SIGSPATIAL 2026 GIS Cup](https://sigspatial2026.sigspatial.org/giscup.html). Given building footprints, an antenna budget **k**, and a visibility threshold **τ**, it chooses sites **on building boundaries** to maximize the number of buildings with at least τ of their perimeter visible. Boundary tangencies do not obstruct a line of sight. This is a *planar visibility and placement* problem, not a radio-propagation simulator.
 
-## Build
+**Engineering highlights**
 
-```bash
-make            # builds ./giscup and ./test_figures
-make portable   # same, without -march=native (use for the submitted source)
-```
+- **Geometry:** a rotational sweep computes visible building-boundary intervals; an independent brute-force sampler and the organizers' illustrated examples provide checks.
+- **Optimization:** a spatial index and precomputed candidate contributions support selection and local-search approaches across the nine `(τ, k)` cases.
+- **Verification:** placement claims are recomputed before submission; a separate format gate rejects missing or malformed submissions rather than silently skipping the check.
 
-Requires a C++17 compiler with OpenMP. No third-party libraries.
+**Recorded evidence:** the [baseline commit](https://github.com/omarsaqr12/giscup-2026/commit/50e3fa4e5d0163a58a611e23041c0d8aacf6a440) reports a *post-submission* comparison against the organizers' evaluator with agreement on **42,505 claims across nine blocks**. That is a historical report, not a fresh reproduction, an optimum proof, or a competition ranking. See the [experiment log](FINDINGS.md) for the tested approaches, including negative results.
 
-## Verify
+## Start here: build, inspect, verify
 
-```bash
-make check
-```
-
-Runs two independent checks:
-
-1. **`test_figures`** — reproduces all 30 per-building coverage percentages and
-   both service scores that the organizers published in Figures 4 and 5 of the
-   problem statement. This pins the engine to the organizers' own reading of
-   Definitions 1–4.
-2. **`giscup crosscheck`** — compares the rotational-sweep visibility engine
-   against an independent brute-force sampler on random neighbourhoods of the
-   real dataset.
-3. **`bash tests/robustness.sh`** — mutates the sample into 14 shapes the real
-   dataset might arrive in (id under other property names or absent,
-   MultiPolygon, reversed rings, unclosed rings, XYZ coordinates, no CRS,
-   shifted origin, duplicate vertices, k exceeding the candidate count) and
-   checks each still solves and verifies identically.
-4. **`giscup exact`** — exhaustive optimum for k≤3, for measuring the true
-   optimality gap on tiny instances.
-
-## Documents
-
-| file | contents |
-|---|---|
-| [`FINDINGS.md`](FINDINGS.md) | experiment log: the problem, every approach tried, and its measured result — including the ones that failed |
-| [`plan.md`](plan.md) | approach and run-day playbook |
-
-## Run
+A C++17 compiler with OpenMP, `make`, and Python 3 are required; the core solver has no third-party C++ dependencies. Run from the repository root:
 
 ```bash
-./giscup solve --data data/GIS-cup-sample-dataset.geojson \
-               --tau 0.25,0.5,0.75 --k 50,500,1000 \
-               --radius 600 --lns-sec 150 --swap 400 \
-               --verify-radius 2500 --out submission.txt
+make portable test_figures
+./test_figures tests/figures_groundtruth.txt
+bash tests/test_format_gate.sh
 ```
 
-Writes the 9-block submission file. Useful flags:
+For a small **noncompetitive** solve, rather than the full nine-case optimization:
 
-| flag | meaning |
-|---|---|
-| `--radius R` | visibility cutoff during search, metres (600 is the measured sweet spot) |
-| `--powers a,b,c` | convexity exponents to auto-tune over, per sub-problem |
-| `--no-auto` | disable auto-tuning; use a single `--power` |
-| `--lns-sec S` | seconds of large-neighbourhood polish per sub-problem |
-| `--swap N` | 2-exchange local search with an N-candidate shortlist (400 works well) |
-| `--swap-passes N` | cap on 2-exchange passes per polish call (default 200) |
-| `--lns-destroy` | randomised-destroy LNS: ruin ρ∈{5,10,15}% of the incumbent (uniform / spatial-cluster) and rebuild; the coupled multi-antenna move 2-exchange cannot make. Opt-in, default off (see FINDINGS §5.23) |
-| `--swap-plateau N` | accept ≤N score-equal 2-exchange swaps that raise the truncated secondary measure between strict gains, to cross objective plateaus. Opt-in, default off |
-| `--alns` | adaptive LNS: roulette over weighted destroy operators {uniform, cluster, worst-removal} with simulated-annealing acceptance. Clears the k≤3 gate but **loses at scale** to plain `--lns-destroy`; kept for the record, default off (FINDINGS §5.24) |
-| `--tabu N` | tabu search over the 2-exchange neighbourhood, tenure N. **Fails the k≤3 gate** (single-swap pair-blindness); kept for the record, default off (FINDINGS §5.24) |
-| `--verify-radius R` | cap the verification sweep; 2500 is exact here and 2x faster |
-| `--restarts N` | GRASP restarts (helps only on tiny instances; default off) |
-| `--edge-spacing D` | also place candidate sites every D metres along edges |
-| `--algo NAME` | `selfcover`, `bundle`, `truncated`, `potential`, `potential+lns` |
-
-Other subcommands: `bench` (compare algorithms across all nine sub-problems),
-`crosscheck` (brute-force validation), `verify` (re-score a finished submission;
-`--rewrite` repairs its claim lines), `exact` (exhaustive optimum, k<=3),
-`dump` (contribution map, for `tools/lp_bound.py`).
-
-## Layout
-
+```bash
+./giscup solve --data data/tiny/tiny40.geojson \
+  --tau 0.5 --k 3 --lns-sec 0 --no-auto --power 1 --out trial.txt
+make check-format SUBMISSION=trial.txt BLOCKS=1
 ```
-src/geom.hpp        exact orientation predicate, ray/segment primitives
-src/scene.hpp       footprints, arc-length parameterisation, uniform grid index
-src/geojson.hpp     dependency-free GeoJSON reader
-src/visibility.hpp  rotational plane sweep -> exact visible arcs
-src/coverage.*      arc-interval union, exact evaluator
-src/pipeline.hpp    candidate sites, contribution map, inverse index
-src/solvers.hpp     selection algorithms
-src/bruteforce.hpp  independent reference implementation
-tests/              figure regression oracle
-tools/              dataset scaling, figure extraction
-```
+
+The tiny-instance command demonstrates the pipeline; it does **not** validate solution quality or the official grader. A full sample run uses `data/GIS-cup-sample-dataset.geojson` and can take substantially longer. See [`plan.md`](plan.md) for historical run configurations; do not treat them as a lightweight quickstart.
+
+## Architecture
+
+| Stage | Implementation | What it does |
+| --- | --- | --- |
+| Load and index | [`geojson.hpp`](src/geojson.hpp), [`scene.hpp`](src/scene.hpp) | Parse GeoJSON, normalize footprint rings, index edges |
+| Generate and measure | [`pipeline.hpp`](src/pipeline.hpp), [`visibility.hpp`](src/visibility.hpp) | Generate boundary candidates and sweep visible perimeter arcs |
+| Aggregate and search | [`coverage.cpp`](src/coverage.cpp), [`solvers.hpp`](src/solvers.hpp) | Union visible intervals, build contribution maps, select placements |
+| Verify and export | [`main.cpp`](src/main.cpp), [`archive.hpp`](src/archive.hpp) | Re-evaluate claims and write the competition submission format |
+
+The CLI entry point is [`src/main.cpp`](src/main.cpp). [`src/bruteforce.hpp`](src/bruteforce.hpp) supplies an independent, sampled geometry reference; it is *not* proof of correctness on arbitrary polygon inputs.
+
+## Verification and what it establishes
+
+| Command | Scope |
+| --- | --- |
+| `make check` | Figure-oracle regression and randomized visibility cross-check on sample data; not an optimality guarantee |
+| `bash tests/test_format_gate.sh` | Missing, valid, and malformed submission-format cases; no C++ solve required |
+| `make check-format SUBMISSION=trial.txt BLOCKS=1` | Requires an actual nonempty submission and runs the **local** format parser; not the full official evaluator |
+| `make check-robustness` | 14 transformed-input solve/verify cases; opt-in and more expensive |
+| `./giscup exact ...` | Exhaustive placement search on *small* instances with k≤3; not a large-instance optimum |
+
+The `make check` target does **not** implicitly run format validation or robustness. A positive `--verify-radius` truncates the final sweep, so its sufficiency is dataset-dependent; the default nonpositive radius is uncapped. The [organizers' evaluator](https://github.com/alowe/gis-cup-2026-evaluator) is a separate external check. A basic GitHub Actions workflow runs the portable build, figure fixtures, and format regression on proposed changes; it does not run the full optimizer or external evaluator.
+
+## Repository guide and limitations
+
+- [`FINDINGS.md`](FINDINGS.md): measured experiments, comparisons, and failed approaches; [`results/`](results/): retained run artifacts.
+- [`plan.md`](plan.md), [`PC2_WORK_ORDER.md`](PC2_WORK_ORDER.md), [`RUNDAY_OTHERPC.md`](RUNDAY_OTHERPC.md): historical execution notes, not current setup requirements.
+- [`tests/`](tests/): geometric fixtures, input robustness, and submission-format checks; [`tools/`](tools/): analysis and run-day utilities.
+- [`data/`](data/): sample/tiny GeoJSON and figure assets. The [`archive/index.tsv`](archive/index.tsv) is tracked, but its referenced placement files are **not** in this checkout; a fresh clone cannot necessarily reconstruct the historical best-of archive.
+
+The implementation is tailored to the competition's planar-footprint assumptions. It does not establish correctness for arbitrary invalid polygons, holes, overlapping footprints, or every floating-point degeneracy. The historical 42,505-claim report was not reproduced for this documentation update. No leaderboard placement or individual-versus-team contribution is asserted without supporting evidence.
