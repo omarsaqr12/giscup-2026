@@ -1,55 +1,73 @@
-# GIS Cup 2026 · Boundary-constrained antenna placement
+# GIS Cup 2026 | Geometric antenna placement
 
-A C++17 solver for the [ACM SIGSPATIAL 2026 GIS Cup](https://sigspatial2026.sigspatial.org/giscup.html). Given two-dimensional building footprints, a coverage threshold `τ`, and an antenna budget `k`, it places antennas **on building boundaries** to maximize the number of buildings with at least `τ` of their perimeter visible. A line touching a boundary without entering a building's interior is not blocked.
+**C++17 · computational geometry · combinatorial optimization · verification**
 
-**What is implemented:** a dependency-free GeoJSON loader; a rotational visibility sweep that emits boundary arc intervals; an indexed candidate/contribution pipeline; multiple selection and local-search strategies; an uncapped geometric recheck before writing claimed building IDs; and independent regression/cross-check utilities. This is a competition research solver, **not** a wireless propagation or deployment simulator.
+A solver for the [ACM SIGSPATIAL 2026 GIS Cup](https://sigspatial2026.sigspatial.org/giscup.html). Given building footprints, an antenna budget **k**, and a visibility threshold **τ**, it chooses sites **on building boundaries** to maximize the number of buildings with at least τ of their perimeter visible. Boundary tangencies do not obstruct a line of sight. This is a *planar visibility and placement* problem, not a radio-propagation simulator.
 
-**Where to start:** [`src/main.cpp`](src/main.cpp) (CLI and end-to-end pipeline) → [`src/visibility.hpp`](src/visibility.hpp) (visibility geometry) → [`src/coverage.hpp`](src/coverage.hpp) (interval union and coverage) → [`src/solvers.hpp`](src/solvers.hpp) (optimization). See the [experiment log](FINDINGS.md) for measurements **including failed approaches** and the [run-day plan](plan.md) for historical tuning decisions.
+**Engineering highlights**
 
-## Build and run
+- **Geometry:** a rotational sweep computes visible building-boundary intervals; an independent brute-force sampler and the organizers' illustrated examples provide checks.
+- **Optimization:** a spatial index and precomputed candidate contributions support selection and local-search approaches across the nine `(τ, k)` cases.
+- **Verification:** placement claims are recomputed before submission; a separate format gate rejects missing or malformed submissions rather than silently skipping the check.
 
-Requires a C++17 compiler with OpenMP, `make`, and Python 3 for submission-format validation. No third-party C++ libraries are required for the core solver.
+**Recorded evidence:** the [baseline commit](https://github.com/omarsaqr12/giscup-2026/commit/50e3fa4e5d0163a58a611e23041c0d8aacf6a440) reports a *post-submission* comparison against the organizers' evaluator with agreement on **42,505 claims across nine blocks**. That is a historical report, not a fresh reproduction, an optimum proof, or a competition ranking. See the [experiment log](FINDINGS.md) for the tested approaches, including negative results.
+
+## Start here: build, inspect, verify
+
+A C++17 compiler with OpenMP, `make`, and Python 3 are required; the core solver has no third-party C++ dependencies. Run from the repository root:
 
 ```bash
-make portable                       # portable C++ build; produces ./giscup
-make check                          # figure oracle + independent geometry cross-check
-./giscup solve --data data/GIS-cup-sample-dataset.geojson \
-  --tau 0.25,0.5,0.75 --k 50,500,1000 \
-  --radius 600 --lns-sec 150 --swap 400 \
-  --verify-radius 2500 --out submission.txt
-make check-format SUBMISSION=submission.txt BLOCKS=9
+make portable
+./test_figures tests/figures_groundtruth.txt  # build this target first with: make test_figures
+bash tests/test_format_gate.sh
 ```
 
-The solve command above is a **substantial optimization run**, not a quick smoke test. `--lns-sec` is a per-subproblem search budget. For a small, deliberately noncompetitive trial, use `--tau 0.5 --k 3 --lns-sec 0 --no-auto --power 1 --out trial.txt`; validate it with `make check-format SUBMISSION=trial.txt BLOCKS=1`. The quick trial tests the command path, not solution quality. `make` (without `portable`) uses `-march=native`, so binaries from that build may not run on other machines.
+Or run the figure check and format regression with explicit build targets:
 
-`make check` runs **two** checks: `test_figures` against the organizers' illustrated coverage examples, and `giscup crosscheck` against an independent brute-force visibility sampler. They test geometry, not optimality. The heavier `make check-robustness` separately runs 14 transformed-input solve/verify cases. `make check-format SUBMISSION=...` requires an actual nonempty result file, runs the local parser-conformance checker, and fails on malformed or missing input; it does **not** substitute for the organizers' full ArcGIS evaluator. Neither submission-format validation nor the robustness suite is silently counted as part of `make check`.
+```bash
+make portable test_figures
+./test_figures tests/figures_groundtruth.txt
+bash tests/test_format_gate.sh
+```
 
-Other CLI subcommands include `bench`, `crosscheck`, `verify`, `exact` (small `k≤3` instances), `dump`, and `archive`. Search may use a distance cutoff (`--radius`), whereas the final claims are recomputed with `--verify-radius` (a positive cutoff must itself be justified for the dataset; the default nonpositive value is uncapped). Recheck and compare against the [official evaluator](https://github.com/alowe/gis-cup-2026-evaluator) before treating any score as externally verified.
+For a small **noncompetitive** solve, rather than the full nine-case optimization:
 
-## How the solution works
+```bash
+./giscup solve --data data/tiny/tiny40.geojson \
+  --tau 0.5 --k 3 --lns-sec 0 --no-auto --power 1 --out trial.txt
+make check-format SUBMISSION=trial.txt BLOCKS=1
+```
 
-1. [`src/geojson.hpp`](src/geojson.hpp) and [`src/scene.hpp`](src/scene.hpp) load and index building edges; [`src/pipeline.hpp`](src/pipeline.hpp) creates candidate sites and their coverage contributions.
-2. [`src/visibility.hpp`](src/visibility.hpp) sweeps edge events around each antenna and emits visible perimeter intervals; [`src/coverage.cpp`](src/coverage.cpp) combines intervals over antennas.
-3. [`src/solvers.hpp`](src/solvers.hpp) selects sites, then optional neighborhood search refines the selection for each `(τ,k)`.
-4. [`src/main.cpp`](src/main.cpp) recomputes which buildings are serviced before emitting the competition's three-line-per-case submission format.
+The tiny-instance command demonstrates the pipeline; it does **not** validate solution quality or the official grader. A full sample run uses `data/GIS-cup-sample-dataset.geojson` and can take substantially longer. See [`plan.md`](plan.md) for historical run configurations; do not treat them as a lightweight quickstart.
 
-The full [research record](FINDINGS.md) explains search-radius trade-offs, objective variants, small-instance exact checks, and failures. The source tree also contains [`src/bruteforce.hpp`](src/bruteforce.hpp), which supplies a separate approximate geometric reference for randomized cross-checking. A brute-force sampling agreement is **not** proof of exact correctness on every possible polygon.
+## Architecture
 
-## Evidence and boundaries
+| Stage | Implementation | What it does |
+| --- | --- | --- |
+| Load and index | [`geojson.hpp`](src/geojson.hpp), [`scene.hpp`](src/scene.hpp) | Parse GeoJSON, normalize footprint rings, index edges |
+| Generate and measure | [`pipeline.hpp`](src/pipeline.hpp), [`visibility.hpp`](src/visibility.hpp) | Generate boundary candidates and sweep visible perimeter arcs |
+| Aggregate and search | [`coverage.cpp`](src/coverage.cpp), [`solvers.hpp`](src/solvers.hpp) | Union visible intervals, build contribution maps, select placements |
+| Verify and export | [`main.cpp`](src/main.cpp), [`archive.hpp`](src/archive.hpp) | Re-evaluate claims and write the competition submission format |
 
-The baseline commit records a **post-submission** run through the organizers' evaluator reporting agreement on 42,505 claims across nine blocks. This is a historical report in the [repository history](https://github.com/omarsaqr12/giscup-2026/commit/50e3fa4e5d0163a58a611e23041c0d8aacf6a440), **not a result reproduced by this README** or proof of an optimal placement. Inspect [`results/`](results/) and [`FINDINGS.md`](FINDINGS.md) for recorded runs and their provenance. The tracked [`archive/index.tsv`](archive/index.tsv) is an index; its referenced placement files are not present in this checkout, so a fresh clone cannot necessarily export a complete historical best-of archive. Do not treat that archive as a reproducible result bundle.
+The CLI entry point is [`src/main.cpp`](src/main.cpp). [`src/bruteforce.hpp`](src/bruteforce.hpp) supplies an independent, sampled geometry reference; it is *not* proof of correctness on arbitrary polygon inputs.
 
-The competition specified simple planar polygons and a 0.001 m evaluator tolerance. Geometry code contains dataset-specific numeric tolerances and heuristics; cross-checks and figure oracles do not establish correctness for arbitrary invalid polygons, holes, overlapping buildings, or all degeneracies. Some historical notes describe an earlier sample-dataset anomaly; consult the [competition update](https://sigspatial2026.sigspatial.org/giscup.html) before comparing results across sample versions. No placement, leaderboard rank, award, or team contribution beyond what the committed evidence documents is asserted here.
+## Verification and what it establishes
 
-## Repository map
-
-| Path | Purpose |
+| Command | Scope |
 | --- | --- |
-| [`src/`](src/) | Geometry, visibility, scoring, optimizer, CLI and archived-placement support |
-| [`tests/`](tests/) | Figure oracle, brute-force-linked checks, parser conformance and input robustness |
-| [`tools/`](tools/) | Dataset inspection, parameter handling, exploratory optimization and historical packaging |
-| [`data/`](data/) | Sample GeoJSON, small instances and organizers' figure assets |
-| [`results/`](results/) | Recorded benchmark and run-day artifacts; not a substitute for rerunning experiments |
-| [`FINDINGS.md`](FINDINGS.md), [`plan.md`](plan.md) | Experimental record and historical execution plan |
+| `make check` | Figure-oracle regression and randomized visibility cross-check on sample data; not an optimality guarantee |
+| `bash tests/test_format_gate.sh` | Missing, valid, and malformed submission-format cases; no C++ solve required |
+| `make check-format SUBMISSION=trial.txt BLOCKS=1` | Requires an actual nonempty submission and runs the **local** format parser; not the full official evaluator |
+| `make check-robustness` | 14 transformed-input solve/verify cases; opt-in and more expensive |
+| `./giscup exact ...` | Exhaustive placement search on *small* instances with k≤3; not a large-instance optimum |
 
-**Project description for GitHub:** `C++17 GIS Cup antenna-placement solver with rotational visibility sweeps, local search, and independent geometry checks.`
+The `make check` target does **not** implicitly run format validation or robustness. A positive `--verify-radius` truncates the final sweep, so its sufficiency is dataset-dependent; the default nonpositive radius is uncapped. The [organizers' evaluator](https://github.com/alowe/gis-cup-2026-evaluator) is a separate external check. A basic GitHub Actions workflow runs the portable build, figure fixtures, and format regression on proposed changes; it does not run the full optimizer or external evaluator.
+
+## Repository guide and limitations
+
+- [`FINDINGS.md`](FINDINGS.md): measured experiments, comparisons, and failed approaches; [`results/`](results/): retained run artifacts.
+- [`plan.md`](plan.md), [`PC2_WORK_ORDER.md`](PC2_WORK_ORDER.md), [`RUNDAY_OTHERPC.md`](RUNDAY_OTHERPC.md): historical execution notes, not current setup requirements.
+- [`tests/`](tests/): geometric fixtures, input robustness, and submission-format checks; [`tools/`](tools/): analysis and run-day utilities.
+- [`data/`](data/): sample/tiny GeoJSON and figure assets. The [`archive/index.tsv`](archive/index.tsv) is tracked, but its referenced placement files are **not** in this checkout; a fresh clone cannot necessarily reconstruct the historical best-of archive.
+
+The implementation is tailored to the competition's planar-footprint assumptions. It does not establish correctness for arbitrary invalid polygons, holes, overlapping footprints, or every floating-point degeneracy. The historical 42,505-claim report was not reproduced for this documentation update. No leaderboard placement or individual-versus-team contribution is asserted without supporting evidence.
