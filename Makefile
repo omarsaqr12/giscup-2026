@@ -15,16 +15,26 @@ test_figures: tests/test_figures.cpp src/coverage.cpp src/*.hpp
 portable: src/main.cpp src/coverage.cpp src/*.hpp
 	$(CXX) -O3 -std=c++17 -fopenmp -DNDEBUG -o $(BIN) src/main.cpp src/coverage.cpp
 
+# Baseline geometry checks. Neither submission-format validation nor the
+# potentially expensive input-robustness suite is included implicitly.
 check: test_figures $(BIN)
 	./test_figures tests/figures_groundtruth.txt
 	./$(BIN) crosscheck --data data/GIS-cup-sample-dataset.geojson
-	@echo "--- official submission-format conformance ---"
-	@./$(BIN) archive export-submission --data data/GIS-cup-sample-dataset.geojson \
-	    --out /tmp/giscup-conformance.txt >/dev/null 2>&1 || true
-	@test -s /tmp/giscup-conformance.txt && python3 tests/conformance.py /tmp/giscup-conformance.txt 9 | tail -2 \
-	    || echo "(no archive yet; skipping format conformance)"
+
+# Validate the actual solution file, not a possibly missing/stale archive
+# export in a shared /tmp path. Example: make check-format SUBMISSION=output.txt
+# BLOCKS=9 (use BLOCKS=1 for a deliberately small fixture).
+BLOCKS ?= 9
+check-format:
+	@test -n "$(SUBMISSION)" || { echo "Set SUBMISSION=path/to/solution.txt" >&2; exit 2; }
+	@test -s "$(SUBMISSION)" || { echo "Missing or empty submission: $(SUBMISSION)" >&2; exit 2; }
+	python3 tests/conformance.py "$(SUBMISSION)" "$(BLOCKS)"
+
+# 14 dataset mutations; opt in because each variant launches a solve and verify.
+check-robustness: $(BIN)
+	bash tests/robustness.sh
 
 clean:
 	rm -f $(BIN) test_figures
 
-.PHONY: all check clean portable
+.PHONY: all check check-format check-robustness clean portable
