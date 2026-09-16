@@ -22,3 +22,9 @@ jobs:
         run: ./test_figures tests/figures_groundtruth.txt
       - name: Verify submission-format failure paths
         run: bash tests/test_format_gate.sh
+      - name: Run the tiny quickstart and validate its output format
+        run: |
+          OMP_NUM_THREADS=2 timeout 120s ./giscup solve \
+            --data data/tiny/tiny40.geojson --tau 0.5 --k 3 \
+            --lns-sec 0 --no-auto --power 1 --out "$RUNNER_TEMP/trial.txt"
+          make check-format SUBMISSION="$RUNNER_TEMP/trial.txt" BLOCKS=1
