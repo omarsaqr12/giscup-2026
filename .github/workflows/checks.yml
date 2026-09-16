@@ -1,0 +1,24 @@
+name: Geometry and format checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  verification:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build portable solver and figure tests
+        run: |
+          make portable
+          make test_figures
+      - name: Compare geometry against the published figure fixtures
+        run: ./test_figures tests/figures_groundtruth.txt
+      - name: Verify submission-format failure paths
+        run: bash tests/test_format_gate.sh
