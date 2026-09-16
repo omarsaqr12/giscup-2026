@@ -17,14 +17,6 @@ A solver for the [ACM SIGSPATIAL 2026 GIS Cup](https://sigspatial2026.sigspatial
 A C++17 compiler with OpenMP, `make`, and Python 3 are required; the core solver has no third-party C++ dependencies. Run from the repository root:
 
 ```bash
-make portable
-./test_figures tests/figures_groundtruth.txt  # build this target first with: make test_figures
-bash tests/test_format_gate.sh
-```
-
-Or run the figure check and format regression with explicit build targets:
-
-```bash
 make portable test_figures
 ./test_figures tests/figures_groundtruth.txt
 bash tests/test_format_gate.sh
